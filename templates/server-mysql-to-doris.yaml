@@ -1,0 +1,70 @@
+task:
+  name: mysql_to_doris_orders
+  description: "MySQL 同步到 Doris 后的任务后一致性校验"
+  mode: post_check
+
+boundary:
+  type: job_finish
+  reference: latest
+
+source:
+  type: jdbc
+  url: jdbc:mysql://mysql-source.prod:3306/app
+  username: app_read
+  password: ${SRC_PASSWORD}
+  query: |
+    select order_id, user_id, status, amount, update_time, dt
+    from orders
+    where dt = '2026-03-10'
+  options:
+    dialect: mysql
+
+target:
+  type: jdbc
+  url: jdbc:mysql://doris-fe.prod:9030/ads
+  username: doris_read
+  password: ${TGT_PASSWORD}
+  table: ads.orders
+  options:
+    dialect: doris
+
+object:
+  key:
+    - order_id
+  columns:
+    include:
+      - order_id
+      - user_id
+      - status
+      - amount
+      - update_time
+      - dt
+
+planner:
+  mode: auto
+  hints:
+    estimated_rows: 5000000
+    partition_keys:
+      - dt
+    max_exact_rows: 100000
+
+normalization:
+  timezone: Asia/Shanghai
+  trim_string: true
+  empty_as_null: true
+  decimal_scale:
+    amount: 2
+
+compare:
+  segment:
+    by:
+      - dt
+  diff:
+    max_samples: 200
+
+output:
+  dir: /opt/data-audit/reports/mysql_to_doris_orders
+
+state:
+  backend: sqlite
+  path: /opt/data-audit/state/mysql_to_doris_orders.db

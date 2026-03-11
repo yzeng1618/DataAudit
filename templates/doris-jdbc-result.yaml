@@ -1,0 +1,49 @@
+task:
+  name: doris_result_check
+  mode: post_check
+
+boundary:
+  type: job_finish
+
+source:
+  type: jdbc
+  url: jdbc:mysql://mysql-source:3306/app
+  username: app
+  password: ${SRC_PASSWORD}
+  query: |
+    select order_id, amount, status, dt
+    from orders
+    where dt = '2026-03-10'
+  options:
+    dialect: mysql
+
+target:
+  type: jdbc
+  url: jdbc:mysql://doris-fe:9030/ads
+  username: root
+  password: ${DORIS_PASSWORD}
+  table: ads.orders
+  options:
+    dialect: doris
+
+object:
+  key:
+    - order_id
+
+planner:
+  mode: auto
+  hints:
+    estimated_rows: 500000
+    max_exact_rows: 100000
+
+compare:
+  segment:
+    by:
+      - dt
+
+output:
+  dir: ./reports/doris_result_check
+
+state:
+  backend: sqlite
+  path: ./.recon/state.db

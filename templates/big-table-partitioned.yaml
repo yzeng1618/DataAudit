@@ -1,0 +1,50 @@
+task:
+  name: big_table_partitioned
+  mode: post_check
+
+boundary:
+  type: partition
+  reference: dt=2026-03-10
+
+source:
+  type: jdbc
+  url: jdbc:postgresql://localhost:5432/source_db
+  username: app
+  password: ${SRC_PASSWORD}
+  query: |
+    select order_id, amount, status, dt
+    from public.orders
+  options:
+    dialect: postgres
+
+target:
+  type: jdbc
+  url: jdbc:postgresql://localhost:5432/target_db
+  username: app
+  password: ${TGT_PASSWORD}
+  table: public.orders
+  options:
+    dialect: postgres
+
+object:
+  key:
+    - order_id
+
+planner:
+  mode: auto
+  hints:
+    estimated_rows: 10000000
+    partition_keys:
+      - dt
+
+compare:
+  segment:
+    by:
+      - dt
+
+output:
+  dir: ./reports/big_table_partitioned
+
+state:
+  backend: sqlite
+  path: ./.recon/state.db

@@ -1,0 +1,70 @@
+task:
+  name: hive_to_postgres_orders_ads
+  description: "Hive 数仓结果同步到 PostgreSQL ADS 后的分区校验"
+  mode: post_check
+
+boundary:
+  type: partition
+  reference: dt=2026-03-10
+
+source:
+  type: jdbc
+  url: jdbc:hive2://hive-server.prod:10000/dw
+  username: hive_read
+  password: ${SRC_PASSWORD}
+  query: |
+    select order_id, shop_id, status, amount, dt
+    from dw.orders_ads
+    where dt = '2026-03-10'
+  options:
+    dialect: hive
+
+target:
+  type: jdbc
+  url: jdbc:postgresql://postgres-ads.prod:5432/ads
+  username: ads_read
+  password: ${TGT_PASSWORD}
+  table: public.orders_ads
+  options:
+    dialect: postgres
+
+object:
+  key:
+    - order_id
+  columns:
+    include:
+      - order_id
+      - shop_id
+      - status
+      - amount
+      - dt
+
+planner:
+  mode: segment_first
+  hints:
+    estimated_rows: 200000000
+    partition_keys:
+      - dt
+    max_exact_rows: 100000
+
+normalization:
+  timezone: Asia/Shanghai
+  trim_string: true
+  empty_as_null: true
+  decimal_scale:
+    amount: 2
+
+compare:
+  segment:
+    by:
+      - dt
+    chunk_rows: 1000000
+  diff:
+    max_samples: 200
+
+output:
+  dir: /opt/data-audit/reports/hive_to_postgres_orders_ads
+
+state:
+  backend: sqlite
+  path: /opt/data-audit/state/hive_to_postgres_orders_ads.db

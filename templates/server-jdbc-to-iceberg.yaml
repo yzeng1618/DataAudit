@@ -1,0 +1,69 @@
+task:
+  name: postgres_to_iceberg_orders
+  description: "JDBC 源表与 Iceberg 目标表的 snapshot 边界校验"
+  mode: post_check
+
+boundary:
+  type: snapshot
+  reference: latest
+
+source:
+  type: jdbc
+  url: jdbc:postgresql://postgres-source.prod:5432/app
+  username: app_read
+  password: ${SRC_PASSWORD}
+  query: |
+    select order_id, status, amount, update_time, dt
+    from public.orders
+    where dt = '2026-03-10'
+  options:
+    dialect: postgres
+
+target:
+  type: iceberg
+  catalog: prod
+  catalog_type: hadoop
+  warehouse: hdfs:///warehouse/iceberg
+  database: dw
+  table: orders
+  snapshot_id: latest
+
+object:
+  key:
+    - order_id
+  columns:
+    include:
+      - order_id
+      - status
+      - amount
+      - update_time
+      - dt
+
+planner:
+  mode: metadata_first
+  hints:
+    object_class: lakehouse_object
+    prefer_metadata: true
+    partition_keys:
+      - dt
+
+normalization:
+  timezone: Asia/Shanghai
+  trim_string: true
+  empty_as_null: true
+  decimal_scale:
+    amount: 2
+
+compare:
+  segment:
+    by:
+      - dt
+  diff:
+    max_samples: 200
+
+output:
+  dir: /opt/data-audit/reports/postgres_to_iceberg_orders
+
+state:
+  backend: sqlite
+  path: /opt/data-audit/state/postgres_to_iceberg_orders.db

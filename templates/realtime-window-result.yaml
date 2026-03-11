@@ -1,0 +1,39 @@
+task:
+  name: realtime_window_result
+  mode: post_check
+
+boundary:
+  type: time_window
+  reference: 2026-03-10T00:00:00+08:00/2026-03-10T01:00:00+08:00
+
+source:
+  type: jdbc
+  url: jdbc:postgresql://localhost:5432/source_db
+  username: app
+  password: ${SRC_PASSWORD}
+  query: |
+    select order_id, amount, status, update_time
+    from public.orders
+  options:
+    dialect: postgres
+
+target:
+  type: jdbc
+  url: jdbc:postgresql://localhost:5432/target_db
+  username: app
+  password: ${TGT_PASSWORD}
+  table: public.orders
+  options:
+    dialect: postgres
+
+planner:
+  mode: auto
+  hints:
+    estimated_rows: 500000
+
+output:
+  dir: ./reports/realtime_window_result
+
+state:
+  backend: sqlite
+  path: ./.recon/state.db

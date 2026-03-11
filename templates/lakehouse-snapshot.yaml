@@ -1,0 +1,41 @@
+task:
+  name: lakehouse_snapshot
+  mode: post_check
+
+boundary:
+  type: snapshot
+  reference: latest
+
+source:
+  type: jdbc
+  url: jdbc:postgresql://localhost:5432/source_db
+  username: app
+  password: ${SRC_PASSWORD}
+  query: |
+    select order_id, amount, status, dt
+    from public.orders
+    where dt = '2026-03-10'
+  options:
+    dialect: postgres
+
+target:
+  type: iceberg
+  catalog: local
+  catalogType: hadoop
+  warehouse: file:///tmp/warehouse
+  database: dw
+  table: orders
+  snapshotId: latest
+
+planner:
+  mode: metadata_first
+  hints:
+    object_class: lakehouse_object
+    prefer_metadata: true
+
+output:
+  dir: ./reports/lakehouse_snapshot
+
+state:
+  backend: sqlite
+  path: ./.recon/state.db

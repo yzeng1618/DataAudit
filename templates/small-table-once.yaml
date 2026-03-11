@@ -1,0 +1,41 @@
+task:
+  name: small_table_once
+  mode: post_check
+
+boundary:
+  type: job_finish
+
+source:
+  type: jdbc
+  url: jdbc:postgresql://localhost:5432/source_db
+  username: app
+  password: ${SRC_PASSWORD}
+  table: public.orders
+  options:
+    dialect: postgres
+
+target:
+  type: jdbc
+  url: jdbc:postgresql://localhost:5432/target_db
+  username: app
+  password: ${TGT_PASSWORD}
+  table: public.orders
+  options:
+    dialect: postgres
+
+object:
+  key:
+    - order_id
+
+planner:
+  mode: auto
+  hints:
+    estimated_rows: 10000
+    max_exact_rows: 100000
+
+output:
+  dir: ./reports/small_table_once
+
+state:
+  backend: sqlite
+  path: ./.recon/state.db

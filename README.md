@@ -1,0 +1,794 @@
+# data-audit
+
+> 暂定名。一个面向大数据与湖仓场景的任务后一致性审计 CLI。
+
+`data-audit` 不参与同步链路，不依赖 SeaTunnel / DataX / Flink CDC 等同步框架，也不要求中心 repository 或 Web 平台。它只在任务完成后的稳定边界上执行校验：
+
+- 批任务：在 `job_finish` 后校验结果
+- 实时任务：只在 `snapshot` / `version` / `instant` / `time_window` 等已提交边界后校验
+
+它解决的问题不是“两个表 hash 是否一致”，而是：
+
+- 任务跑完后，结果到底对不对
+- 问题落在哪个分区、哪个 snapshot、哪个时间窗口
+- 是漏数、重复、删除未生效，还是 DDL / schema evolution 引发的误报
+- 下次复查时，能不能只重查受影响范围
+
+## 核心原则
+
+1. 不做同步中校验，只做边界后的结果审计。
+2. 不做第二个 dataCompare，而是做大数据 / 湖仓场景的 snapshot-aware、DDL-aware CLI。
+3. 默认路径不是全表 hash，而是由 planner 在 `boundary metadata -> schema -> summary -> segment -> diff` 中自动选择最小必要路径。
+4. `exact diff` 始终是最终裁决；`hash / digest / checksum` 只负责提速和缩小范围。
+
+## 产品定位
+
+`data-audit` 的定位不是字段规则校验器，也不是同步平台插件，而是一个统一的任务后一致性审计 CLI，用于在数据库、湖仓表、查询结果、文件集等异构对象之间，对某个稳定边界上的结果状态做分层校验，并输出可定位、可复查的差异证据。
+
+MVP 阶段它是单进程、单命令、单次任务运行的 CLI。未来可以扩展可选控制面，用于报告汇聚、模板中心和任务目录，但这不改变 CLI-first 的产品边界。
+
+## 适用场景
+
+`data-audit` 统一支持三类一等对象，兼容传统小表单次比对，同时覆盖大表、分区表与湖仓对象：
+
+| 对象类 | 典型 source / target | 典型边界 | 默认路径 | 主要证据 |
+| --- | --- | --- | --- | --- |
+| `small_table_once` | JDBC 表、查询结果、导出文件 | `job_finish` | `schema -> exact diff` | row diff、sample diff |
+| `partitioned_big_table` | 大表、分区表、按时间或业务键切片的大对象 | `job_finish` / `partition` / `time_window` | `schema -> summary -> segment -> diff` | suspect segments、partition summary |
+| `lakehouse_object` | Iceberg / Hudi / Delta / Paimon | `snapshot` / `version` / `instant` / `time_window` | `boundary metadata -> schema -> summary -> segment -> diff` | snapshot info、manifest/timeline、suspect slices |
+
+兼容传统小表单次比对，指的是：
+
+- 当边界稳定、数据规模可控时，planner 可以直接短路到 `exact diff`
+- 小表仍然可以做传统“表对表精确比对”
+- 但它仍然属于统一的任务后审计架构，而不是独立产品模型
+
+## 和 dataCompare 的差异
+
+| 维度 | dataCompare | data-audit |
+| --- | --- | --- |
+| 产品形态 | 服务 + repository + UI | 单 CLI |
+| 默认部署 | 依赖 PostgreSQL repository | 本地状态即可运行，默认 SQLite / JSON |
+| 默认对象 | 迁移/复制后的数据库表 | 数据库表、查询结果、湖仓表、文件集 |
+| 默认边界 | 任务完成后表对表比对 | `job_finish` / `snapshot` / `version` / `instant` / `time_window` |
+| 核心方法 | hash compare + 并行批处理 | planner 驱动的分层比较 |
+| 大数据关注点 | 偏数据库迁移后比对 | 偏大表、分区、快照、实时任务结果校验 |
+| DDL 处理 | 非核心卖点 | DDL evolution 是一等能力 |
+| 输出 | 一致性结果 + repository 明细 | 根因分类 + suspect slice + diff sample + 报告文件 |
+
+一句话概括：`dataCompare` 更像“迁移后两张表像不像”；`data-audit` 更像“任务跑完后，这个边界上的结果到底对不对，错在哪，为什么错”。
+
+## 默认比较路径
+
+默认路径由 planner 自动决定，而不是由用户手工拼算法：
+
+- 小表：优先走 `schema -> exact diff`
+- 大表 / 分区表：优先走 `schema -> summary -> segment -> diff`
+- 湖仓对象：优先走 `boundary metadata -> schema -> summary -> segment -> diff`
+- 无稳定边界：直接拒绝执行
+
+planner 的职责不是“选算法炫技”，而是根据对象能力、边界稳定性和预估成本，选择最小必要、可解释、可复查的审计路径。
+
+## 架构摘要
+
+- MVP 是单进程 CLI 执行面
+- 运行过程分为 `Spec Load -> Capability Discovery -> Boundary Resolve -> Plan Build -> Layered Execute -> Report Persist`
+- `source / target` 是被审计对象，不属于同步链路
+- `state-store` 用于保存边界指纹、suspect slice 和恢复信息
+- `report` 是产品接口的一部分，不是附属产物
+- 未来可选控制面只做报告汇聚、模板中心、任务目录，不改变 CLI-only 结论
+
+完整架构见 [docs/design.md](docs/design.md)。
+
+## 首版 Connector 策略
+
+首版实现范围固定为两条主线：
+
+- `connector-jdbc`：作为通用 SQL 接入层，承接 PostgreSQL / MySQL / Hive JDBC / Doris JDBC 等可 SQL 化对象
+- `connector-iceberg`：作为首个原生湖仓 connector，优先验证 `snapshot-aware + metadata-first` 路径
+
+这意味着：
+
+- Hive 与 Doris 首版不做 native connector，而是统一通过 `type: jdbc` 接入
+- 当需要利用 `snapshot / manifest / partition summary` 等原生元数据能力时，首版优先支持 Iceberg
+- compare 核心逻辑只保留在 `core`，connector 只负责读数据、读元数据和暴露能力
+
+JDBC 接入建议显式配置方言，首版支持：
+
+- `postgres`
+- `mysql`
+- `hive`
+- `doris`
+
+示例：
+
+```yaml
+source:
+  type: jdbc
+  url: jdbc:hive2://hive-server:10000/dw
+  username: hive
+  password: ${HIVE_PASSWORD}
+  query: |
+    select order_id, amount, dt
+    from dw.orders
+  options:
+    dialect: hive
+```
+
+## 命令设计
+
+```bash
+data-audit check -f task.yaml
+data-audit plan  -f task.yaml
+data-audit diff  -f task.yaml --segment dt=2026-03-10
+data-audit report show ./reports/orders_reconcile/report.json
+```
+
+建议只保留四类命令：
+
+- `check`：标准执行
+- `plan`：只生成比较计划，不执行
+- `diff`：对指定 suspect segment 下钻
+- `report`：查看或转换报告
+
+## 配置示例
+
+下面是一个带 planner hints 的配置示例：
+
+```yaml
+task:
+  name: orders_reconcile
+  mode: post_check
+
+boundary:
+  type: snapshot
+  reference: latest
+  grace_period: 5m
+
+source:
+  type: jdbc
+  query: |
+    select order_id, status, amount, update_time, dt
+    from public.orders
+    where dt = '2026-03-10'
+  options:
+    dialect: postgres
+
+target:
+  type: iceberg
+  table: orders
+  snapshot_id: latest
+
+object:
+  key:
+    - order_id
+
+planner:
+  mode: auto
+  hints:
+    object_class: auto
+    estimated_rows: 5000000
+    partition_keys:
+      - dt
+    max_exact_rows: 100000
+    force_exact_diff: false
+    prefer_metadata: true
+
+compare:
+  levels:
+    - schema
+    - summary
+    - segment
+    - diff
+
+dml:
+  update: latest_state
+
+ddl:
+  mode: compatible
+
+output:
+  dir: ./reports/orders_reconcile
+
+state:
+  backend: sqlite
+  path: ./.recon/state.db
+```
+
+完整设计、全量配置样例和架构细节见 [docs/design.md](docs/design.md)。
+
+## 本地 Java 17 环境
+
+仓库内已经预留项目局部运行方式，不需要改全局 `JAVA_HOME`。
+
+PowerShell 会话里执行：
+
+```powershell
+. .\scripts\use-java17.ps1
+```
+
+这会把当前会话切到仓库内的 `.tools\jdk-17`，然后打印 `java -version` 和 `mvn -v`。
+
+## 本地真实验证
+
+仓库内提供了不依赖 Docker 的真实验证脚本，会创建两个本地 SQLite 数据库来模拟 `source / target`，然后执行真实的 `plan / check / report show`：
+
+```powershell
+. .\scripts\use-java17.ps1
+.\scripts\verify-local-sqlite.ps1
+```
+
+脚本会自动跑两类场景：
+
+- `consistent_small`：小表一致，验证 `schema -> exact diff`
+- `partition_mismatch`：分区数据异常，验证 `schema -> summary -> segment -> diff`
+
+当前默认场景矩阵还包括：
+
+- `small_diff`：小表差异，验证 exact diff 下的差异裁决
+- `keyless_multiset`：无主键结果集，验证 multiset diff
+- `schema_mismatch`：schema 不一致，验证 schema-aware 归因
+- `unstable_snapshot_jdbc`：JDBC 上的 snapshot 边界，验证拒绝执行
+
+输出产物会写到 `.tmp\verify-local\` 下。
+
+## 第二层测试矩阵
+
+仓库内还提供了第二层验证脚本，用于覆盖 JDBC 方言适配、Iceberg metadata-first 和 PostgreSQL E2E：
+
+```powershell
+. .\scripts\use-java17.ps1
+.\scripts\verify-second-layer.ps1
+```
+
+如果当前环境没有 Docker，且你希望像第一层一样在本地固定目录落报告和状态文件，可以执行：
+
+```powershell
+. .\scripts\use-java17.ps1
+.\scripts\verify-second-layer-local.ps1
+```
+
+本地第二层场景矩阵包括：
+
+- `postgres_simulated_jdbc`
+  - 结果：`CONSISTENT`
+  - 路径：`schema -> exact diff`
+  - 说明：无 Docker 环境下用 `dialect: postgres` 走真实 CLI/JDBC 流程，底层由本地 SQLite 承载数据
+- `hive_jdbc_partitioned`
+  - 结果：`DIFF_FOUND`
+  - 路径：`schema -> summary -> segment -> diff`
+  - 已定位：`dt=2026-03-10`
+- `doris_jdbc_result_diff`
+  - 结果：`DIFF_FOUND`
+  - 路径：`schema -> exact diff`
+  - 根因：`checksum_mismatch`
+- `iceberg_metadata_first`
+  - 结果：`PARTIAL`
+  - 路径：`boundary metadata -> schema -> summary -> segment -> diff`
+  - 根因：`data_reader_unavailable`
+  - 已定位：`manifest=0`
+
+脚本执行成功后，验证产物会落到：
+
+- `D:\work\commit\data-audit\.tmp\verify-second-layer`
+
+每个场景下都会生成：
+
+- `report.json`
+- `report.html`
+- `manifest.json`
+- `suspect_segments.csv`
+- `row_diff_sample.csv`
+- `state.db`
+
+脚本会执行：
+
+- `SqliteDialectCliIntegrationTest`
+  - 用真实 `connector-jdbc` 分别验证 `dialect: hive` 和 `dialect: doris`
+  - 目标是确认 planner 路径、分段逻辑和报告输出在通用 JDBC 模型下成立
+- `ReflectionIcebergMetadataReaderTest`
+  - 验证 `connector-iceberg` 能读取本地 Iceberg table 的 snapshot、schema 和 manifest hints
+- `IcebergMetadataCliIntegrationTest`
+  - 验证 CLI 在 `target.type: iceberg` 时会进入 `metadata-first` 路径，并在缺少原生 data reader 的情况下返回 `PARTIAL`
+- `JdbcCliIntegrationTest`
+  - 使用 Testcontainers 跑 PostgreSQL 真实 JDBC E2E
+  - 如果当前环境没有 Docker，脚本会明确标记为 `SKIPPED`
+
+## Quickstart 场景
+
+### 1. 传统小表单次比对
+
+适用于一次性表对表核验、迁移后小表验证、CI 中的小规模结果断言。
+
+默认路径：
+
+```text
+schema -> exact diff
+```
+
+### 2. 大表 / 分区表结果校验
+
+适用于离线任务完成后的分区比对、大表重跑复查、按 `dt` / `biz_date` 追查 suspect slice。
+
+默认路径：
+
+```text
+schema -> summary -> segment -> diff
+```
+
+### 3. 湖仓 snapshot / version / instant 校验
+
+适用于 Iceberg / Hudi / Delta / Paimon 等对象在已提交边界后的结果核验。
+
+默认路径：
+
+```text
+boundary metadata -> schema -> summary -> segment -> diff
+```
+
+推荐直接从 `templates/` 下的样例起步：
+
+- `templates/small-table-once.yaml`
+- `templates/big-table-partitioned.yaml`
+- `templates/lakehouse-snapshot.yaml`
+- `templates/hive-jdbc-partitioned.yaml`
+- `templates/doris-jdbc-result.yaml`
+
+### 4. 服务器验证 Quickstart
+
+如果需要在服务器上做一次真实校验，推荐直接走 `单 jar` 模式；如果服务器已经有容器运行环境，也可以走 `单容器` 模式。
+
+#### 4.1 单 jar 部署
+
+1. 准备运行环境
+
+- 服务器需要 `Java 17`
+- 建议提前建好工作目录，例如：
+
+```bash
+mkdir -p /opt/data-audit/{bin,tasks,reports,state,logs}
+```
+
+2. 构建并上传产物
+
+- 在构建机执行：
+
+```bash
+mvn -q -DskipTests package
+```
+
+- 上传以下文件到服务器：
+  - `data-audit-cli/target/data-audit.jar`
+  - 选定的 `task.yaml`
+
+3. 准备任务配置
+
+- 可以直接从 `templates/` 拷贝一份再改：
+  - 小表：`templates/small-table-once.yaml`
+  - 分区表：`templates/big-table-partitioned.yaml`
+  - Hive JDBC：`templates/hive-jdbc-partitioned.yaml`
+  - Doris JDBC：`templates/doris-jdbc-result.yaml`
+  - Iceberg：`templates/lakehouse-snapshot.yaml`
+- 建议把密码放到环境变量里，不要写死在 YAML：
+
+```bash
+export SRC_PASSWORD='***'
+export TGT_PASSWORD='***'
+```
+
+4. 先跑 `plan`
+
+```bash
+cd /opt/data-audit
+java -jar ./bin/data-audit.jar plan -f ./tasks/task.yaml
+```
+
+这一步主要确认三件事：
+
+- 配置能正常解析
+- 边界是否稳定
+- planner 选中的路径是否符合预期
+
+5. 再跑 `check`
+
+```bash
+java -jar ./bin/data-audit.jar check -f ./tasks/task.yaml
+```
+
+执行完成后会在 `output.dir` 下生成：
+
+- `report.json`
+- `report.html`
+- `manifest.json`
+- `suspect_segments.csv`
+- `row_diff_sample.csv`
+
+如果 `state.backend=sqlite`，还会在 `state.path` 生成本地状态文件。
+
+6. 查看结果
+
+```bash
+java -jar ./bin/data-audit.jar report show ./reports/<task-name>/report.json
+```
+
+7. 对可疑 segment 继续下钻
+
+如果 `report.json` 里有 `result.resume_hint`，可以直接执行类似命令：
+
+```bash
+java -jar ./bin/data-audit.jar diff -f ./tasks/task.yaml --segment dt=2026-03-10
+```
+
+#### 4.2 单容器部署
+
+如果服务器有 Docker 或兼容运行时，可以先构建镜像：
+
+```bash
+docker build -t data-audit:local .
+```
+
+运行示例：
+
+```bash
+docker run --rm \
+  -v /opt/data-audit/tasks:/app/tasks \
+  -v /opt/data-audit/reports:/app/reports \
+  -v /opt/data-audit/state:/app/state \
+  -e SRC_PASSWORD='***' \
+  -e TGT_PASSWORD='***' \
+  data-audit:local \
+  plan -f /app/tasks/task.yaml
+```
+
+正式执行：
+
+```bash
+docker run --rm \
+  -v /opt/data-audit/tasks:/app/tasks \
+  -v /opt/data-audit/reports:/app/reports \
+  -v /opt/data-audit/state:/app/state \
+  -e SRC_PASSWORD='***' \
+  -e TGT_PASSWORD='***' \
+  data-audit:local \
+  check -f /app/tasks/task.yaml
+```
+
+#### 4.3 推荐的服务器验证顺序
+
+第一次上服务器，建议固定按这个顺序跑：
+
+1. `plan`
+2. `check`
+3. `report show`
+4. 必要时 `diff --segment`
+
+推荐先从当前已经稳定的组合开始：
+
+- `jdbc -> jdbc`：完整支持，适合首批生产验证
+- `jdbc -> iceberg`：当前适合先验证 `metadata-first` 和报告输出
+
+#### 4.4 服务器上的真实示例 `task.yaml`
+
+推荐直接从下面 3 份服务器模板起步：
+
+- `templates/server-mysql-to-doris.yaml`
+- `templates/server-hive-to-postgres.yaml`
+- `templates/server-jdbc-to-iceberg.yaml`
+
+##### mysql -> doris
+
+适用于 MySQL 明细表或结果表同步到 Doris 后的任务后一致性校验：
+
+```yaml
+task:
+  name: mysql_to_doris_orders
+  mode: post_check
+
+boundary:
+  type: job_finish
+
+source:
+  type: jdbc
+  url: jdbc:mysql://mysql-source.prod:3306/app
+  username: app_read
+  password: ${SRC_PASSWORD}
+  query: |
+    select order_id, user_id, status, amount, update_time, dt
+    from orders
+    where dt = '2026-03-10'
+  options:
+    dialect: mysql
+
+target:
+  type: jdbc
+  url: jdbc:mysql://doris-fe.prod:9030/ads
+  username: doris_read
+  password: ${TGT_PASSWORD}
+  table: ads.orders
+  options:
+    dialect: doris
+
+object:
+  key:
+    - order_id
+
+planner:
+  mode: auto
+  hints:
+    estimated_rows: 5000000
+    partition_keys:
+      - dt
+    max_exact_rows: 100000
+
+compare:
+  segment:
+    by:
+      - dt
+
+output:
+  dir: /opt/data-audit/reports/mysql_to_doris_orders
+
+state:
+  backend: sqlite
+  path: /opt/data-audit/state/mysql_to_doris_orders.db
+```
+
+##### hive -> postgres
+
+适用于 Hive 数仓分区结果同步到 PostgreSQL 后的分区级校验：
+
+```yaml
+task:
+  name: hive_to_postgres_orders_ads
+  mode: post_check
+
+boundary:
+  type: partition
+  reference: dt=2026-03-10
+
+source:
+  type: jdbc
+  url: jdbc:hive2://hive-server.prod:10000/dw
+  username: hive_read
+  password: ${SRC_PASSWORD}
+  query: |
+    select order_id, shop_id, status, amount, dt
+    from dw.orders_ads
+    where dt = '2026-03-10'
+  options:
+    dialect: hive
+
+target:
+  type: jdbc
+  url: jdbc:postgresql://postgres-ads.prod:5432/ads
+  username: ads_read
+  password: ${TGT_PASSWORD}
+  table: public.orders_ads
+  options:
+    dialect: postgres
+
+object:
+  key:
+    - order_id
+
+planner:
+  mode: segment_first
+  hints:
+    estimated_rows: 200000000
+    partition_keys:
+      - dt
+    max_exact_rows: 100000
+
+compare:
+  segment:
+    by:
+      - dt
+
+output:
+  dir: /opt/data-audit/reports/hive_to_postgres_orders_ads
+
+state:
+  backend: sqlite
+  path: /opt/data-audit/state/hive_to_postgres_orders_ads.db
+```
+
+##### jdbc -> iceberg
+
+适用于 JDBC 源端与 Iceberg 目标表之间的 snapshot 边界校验。当前更适合先验证 `metadata-first` 路径和 suspect hint 输出：
+
+```yaml
+task:
+  name: postgres_to_iceberg_orders
+  mode: post_check
+
+boundary:
+  type: snapshot
+  reference: latest
+
+source:
+  type: jdbc
+  url: jdbc:postgresql://postgres-source.prod:5432/app
+  username: app_read
+  password: ${SRC_PASSWORD}
+  query: |
+    select order_id, status, amount, update_time, dt
+    from public.orders
+    where dt = '2026-03-10'
+  options:
+    dialect: postgres
+
+target:
+  type: iceberg
+  catalog: prod
+  catalog_type: hadoop
+  warehouse: hdfs:///warehouse/iceberg
+  database: dw
+  table: orders
+  snapshot_id: latest
+
+planner:
+  mode: metadata_first
+  hints:
+    object_class: lakehouse_object
+    prefer_metadata: true
+    partition_keys:
+      - dt
+
+compare:
+  segment:
+    by:
+      - dt
+
+output:
+  dir: /opt/data-audit/reports/postgres_to_iceberg_orders
+
+state:
+  backend: sqlite
+  path: /opt/data-audit/state/postgres_to_iceberg_orders.db
+```
+
+#### 4.5 调度器接入示例
+
+如果要挂到 cron 或调度器后置步骤，建议保留退出码语义：
+
+- `0`：一致
+- `1`：发现差异
+- `4`：部分完成
+- `5`：边界不稳定，拒绝执行
+
+cron 示例：
+
+```bash
+0 * * * * cd /opt/data-audit && /usr/bin/java -jar ./bin/data-audit.jar check -f ./tasks/task.yaml >> ./logs/task.log 2>&1
+```
+
+## 输出与复查
+
+默认输出目录建议包含：
+
+- `report.json`
+- `report.html`
+- `suspect_segments.csv`
+- `row_diff_sample.csv`
+- `manifest.json`
+
+`report.json` 建议至少包含以下字段：
+
+- `plan.object_class`
+- `plan.selected_path`
+- `plan.executed_levels`
+- `plan.boundary`
+- `plan.reason`
+- `result.root_cause`
+- `result.suspect_segments`
+- `result.resume_hint`
+
+`report show` 的目标不只是展示结果，还要回答两件事：
+
+- 为什么这次会走这条比较路径
+- 下次如何拿 suspect slice 继续复查
+
+## 退出码
+
+- `0`：一致
+- `1`：发现差异
+- `2`：配置错误
+- `3`：连接或读取失败
+- `4`：只完成部分 segment
+- `5`：边界不稳定，拒绝执行
+
+## 部署与接入
+
+默认部署目标只有两类：
+
+- 单 jar
+- 单容器
+
+典型接入方式：
+
+- Shell / cron 手工或定时触发
+- 调度器任务完成后的 post-hook
+- CI / CD 或数据发布后的结果审计步骤
+
+未来可选控制面只预留能力位，不作为当前依赖：
+
+- 报告汇聚与检索
+- 任务模板目录
+- 策略模板中心
+- 多次运行趋势对比
+
+## MVP 路线图
+
+### Milestone 1
+
+- CLI 基础框架
+- `task.yaml`
+- JDBC / SQL source & target
+- planner 自动路径选择
+- `L1 schema + L2 summary + L3 segment`
+- JSON / HTML / CSV 报告
+- SQLite state
+
+### Milestone 2
+
+- `snapshot / version / instant / time_window`
+- DML result auditor
+- DDL evolution auditor
+- suspect slice 精确 diff
+- `rename / timezone / precision / null` normalization
+- resume / report 复查闭环
+
+### Milestone 3
+
+- Iceberg metadata reader
+- Hudi timeline / incremental / CDC evidence reader
+- Delta CDF evidence reader
+- Paimon snapshot / system table reader
+- evidence 模式与根因增强
+- 可选控制面能力接入
+
+## 建议仓库结构
+
+```text
+data-audit/
+├── README.md
+├── docs/
+│   └── design.md
+├── templates/
+│   ├── small-table-once.yaml
+│   ├── big-table-partitioned.yaml
+│   ├── lakehouse-snapshot.yaml
+│   └── realtime-window-result.yaml
+├── examples/
+│   └── ...
+├── src/
+│   └── ...
+└── tests/
+    └── ...
+```
+
+## 总结
+
+`data-audit` 不是新的同步平台，也不是另一个只会“全表 hash compare”的数据库工具。
+
+它是一个统一的任务后一致性审计 CLI，具备以下特征：
+
+- 兼容传统小表单次比对场景
+- 支持大表、分区表和湖仓对象
+- 只在稳定边界上校验
+- 支持实时任务结果校验
+- 理解 DML / DDL 和 schema 演进
+- 使用摘要与切片逐层收敛，再由 `exact diff` 做最终裁决
+- 保持轻量、可部署、可复查、可扩展
+
+## 参考资料
+
+- `dataCompare`: https://github.com/WJX20/dataCompare
+- Apache Iceberg Evolution: https://iceberg.apache.org/docs/latest/evolution/
+- Apache Iceberg Spec: https://iceberg.apache.org/spec/
+- Flink CDC API: https://nightlies.apache.org/flink/flink-cdc-docs-release-3.5/zh/docs/developer-guide/understand-flink-cdc-api/
+- Debezium tombstone / delete behavior: https://debezium.io/documentation/reference/stable/transformations/applying-transformations-selectively.html
+- Delta Change Data Feed: https://docs.delta.io/delta-change-data-feed/
+- Apache Hudi SQL Queries: https://hudi.apache.org/docs/sql_queries/
+- Apache Paimon Append Table: https://paimon.apache.org/docs/0.8/append-table/append-table/
+- Apache Paimon Snapshot Spec: https://paimon.apache.org/docs/1.3/concepts/spec/snapshot/

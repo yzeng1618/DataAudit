@@ -1,0 +1,50 @@
+task:
+  name: hive_partitioned_orders
+  mode: post_check
+
+boundary:
+  type: partition
+  reference: dt=2026-03-10
+
+source:
+  type: jdbc
+  url: jdbc:hive2://hive-server:10000/dw
+  username: hive
+  password: ${HIVE_PASSWORD}
+  query: |
+    select order_id, amount, status, dt
+    from dw.orders
+  options:
+    dialect: hive
+
+target:
+  type: jdbc
+  url: jdbc:postgresql://localhost:5432/ads
+  username: app
+  password: ${TGT_PASSWORD}
+  table: public.orders_ads
+  options:
+    dialect: postgres
+
+object:
+  key:
+    - order_id
+
+planner:
+  mode: auto
+  hints:
+    estimated_rows: 200000000
+    partition_keys:
+      - dt
+
+compare:
+  segment:
+    by:
+      - dt
+
+output:
+  dir: ./reports/hive_partitioned_orders
+
+state:
+  backend: sqlite
+  path: ./.recon/state.db
