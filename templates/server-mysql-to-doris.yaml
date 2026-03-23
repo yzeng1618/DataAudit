@@ -9,7 +9,7 @@ boundary:
 
 source:
   type: jdbc
-  url: jdbc:mysql://mysql-source.prod:3306/app
+  url: jdbc:mysql://mysql-source.prod:3306/app?connectTimeout=5000&socketTimeout=300000&tcpKeepAlive=true&useSSL=false
   username: app_read
   password: ${SRC_PASSWORD}
   query: |
@@ -18,15 +18,24 @@ source:
     where dt = '2026-03-10'
   options:
     dialect: mysql
+    query_timeout_seconds: 300
+    fetch_size: 2000
+    progress_log_interval_rows: 5000
 
 target:
   type: jdbc
-  url: jdbc:mysql://doris-fe.prod:9030/ads
+  url: jdbc:mysql://doris-fe.prod:9030/ads?connectTimeout=5000&socketTimeout=300000&tcpKeepAlive=true&useSSL=false
   username: doris_read
   password: ${TGT_PASSWORD}
-  table: ads.orders
+  query: |
+    select order_id, user_id, status, amount, update_time, dt
+    from ads.orders
+    where dt = '2026-03-10'
   options:
     dialect: doris
+    query_timeout_seconds: 300
+    fetch_size: 2000
+    progress_log_interval_rows: 5000
 
 object:
   key:

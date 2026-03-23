@@ -14,141 +14,205 @@ import java.sql.DriverManager;
 import java.sql.Statement;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SqliteDialectCliIntegrationTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    @Test
-    void shouldValidateHiveDialectSegmentPathOnSqliteBackend() throws Exception {
-        Path tempDir = Files.createTempDirectory("recon-hive-sqlite");
-        Path sourceDb = tempDir.resolve("source.db");
-        Path targetDb = tempDir.resolve("target.db");
-        createOrdersTable(sourceDb);
-        createOrdersTable(targetDb);
-
-        insert(sourceDb, 1, "paid", "10.00", "2026-03-10");
-        insert(sourceDb, 2, "new", "20.00", "2026-03-10");
-        insert(sourceDb, 3, "paid", "30.00", "2026-03-11");
-        insert(targetDb, 1, "paid", "10.00", "2026-03-10");
-        insert(targetDb, 2, "new", "99.99", "2026-03-10");
-        insert(targetDb, 3, "paid", "30.00", "2026-03-11");
-
-        Path taskFile = tempDir.resolve("task.yaml");
-        Path reportsDir = tempDir.resolve("reports");
-        Path stateFile = tempDir.resolve("state.db");
-        String yaml = ""
-                + "task:\n"
-                + "  name: hive_sqlite_it\n"
-                + "boundary:\n"
-                + "  type: job_finish\n"
-                + "source:\n"
-                + "  type: jdbc\n"
-                + "  url: jdbc:sqlite:" + sourceDb.toString().replace("\\", "/") + "\n"
-                + "  table: orders\n"
-                + "  options:\n"
-                + "    dialect: hive\n"
-                + "target:\n"
-                + "  type: jdbc\n"
-                + "  url: jdbc:sqlite:" + targetDb.toString().replace("\\", "/") + "\n"
-                + "  table: orders\n"
-                + "  options:\n"
-                + "    dialect: hive\n"
-                + "object:\n"
-                + "  key:\n"
-                + "    - order_id\n"
-                + "planner:\n"
-                + "  mode: segment_first\n"
-                + "  hints:\n"
-                + "    estimated_rows: 1000000\n"
-                + "    max_exact_rows: 100\n"
-                + "    partition_keys:\n"
-                + "      - dt\n"
-                + "compare:\n"
-                + "  segment:\n"
-                + "    by:\n"
-                + "      - dt\n"
-                + "output:\n"
-                + "  dir: " + reportsDir.toString().replace("\\", "/") + "\n"
-                + "state:\n"
-                + "  backend: sqlite\n"
-                + "  path: " + stateFile.toString().replace("\\", "/") + "\n";
-        Files.write(taskFile, yaml.getBytes(StandardCharsets.UTF_8));
-
-        CommandLine cli = new CommandLine(new DataAuditMain());
-        int planExit = cli.execute("plan", "-f", taskFile.toString());
-        int checkExit = cli.execute("check", "-f", taskFile.toString());
-
-        assertEquals(0, planExit);
-        assertEquals(1, checkExit);
-
-        JsonNode report = objectMapper.readTree(reportsDir.resolve("report.json").toFile());
-        assertEquals("partitioned_big_table", report.path("plan").path("object_class").asText());
-        assertEquals("schema -> summary -> segment -> diff", report.path("plan").path("selected_path").asText());
-        assertEquals("DIFF_FOUND", report.path("result").path("status").asText());
-        assertEquals("dt=2026-03-10", report.path("result").path("suspect_segments").get(0).path("segment_key").asText());
+    static {
+        loadSqliteDriver();
     }
 
     @Test
-    void shouldValidateDorisDialectExactDiffOnSqliteBackend() throws Exception {
-        Path tempDir = Files.createTempDirectory("recon-doris-sqlite");
+    void shouldRunJdbcFallbackExactDiffWithNewSchema() throws Exception {
+        Path tempDir = Files.createTempDirectory("data-audit-jdbc-small");
         Path sourceDb = tempDir.resolve("source.db");
         Path targetDb = tempDir.resolve("target.db");
         createOrdersTable(sourceDb);
         createOrdersTable(targetDb);
-
         insert(sourceDb, 1, "paid", "10.00", "2026-03-10");
-        insert(sourceDb, 2, "new", "20.00", "2026-03-10");
         insert(targetDb, 1, "paid", "10.00", "2026-03-10");
-        insert(targetDb, 2, "new", "99.99", "2026-03-10");
 
         Path taskFile = tempDir.resolve("task.yaml");
         Path reportsDir = tempDir.resolve("reports");
-        Path stateFile = tempDir.resolve("state.db");
-        String yaml = ""
-                + "task:\n"
-                + "  name: doris_sqlite_it\n"
-                + "boundary:\n"
-                + "  type: job_finish\n"
-                + "source:\n"
-                + "  type: jdbc\n"
-                + "  url: jdbc:sqlite:" + sourceDb.toString().replace("\\", "/") + "\n"
-                + "  table: orders\n"
-                + "  options:\n"
-                + "    dialect: doris\n"
-                + "target:\n"
-                + "  type: jdbc\n"
-                + "  url: jdbc:sqlite:" + targetDb.toString().replace("\\", "/") + "\n"
-                + "  table: orders\n"
-                + "  options:\n"
-                + "    dialect: doris\n"
-                + "object:\n"
-                + "  key:\n"
-                + "    - order_id\n"
-                + "planner:\n"
-                + "  mode: auto\n"
-                + "  hints:\n"
-                + "    estimated_rows: 2\n"
-                + "    max_exact_rows: 100\n"
-                + "output:\n"
-                + "  dir: " + reportsDir.toString().replace("\\", "/") + "\n"
-                + "state:\n"
-                + "  backend: sqlite\n"
-                + "  path: " + stateFile.toString().replace("\\", "/") + "\n";
-        Files.write(taskFile, yaml.getBytes(StandardCharsets.UTF_8));
+        Files.writeString(taskFile, jdbcYaml("jdbc_small_it", sourceDb, targetDb, reportsDir, 1L, null), StandardCharsets.UTF_8);
 
         CommandLine cli = new CommandLine(new DataAuditMain());
-        int planExit = cli.execute("plan", "-f", taskFile.toString());
-        int checkExit = cli.execute("check", "-f", taskFile.toString());
-
-        assertEquals(0, planExit);
-        assertEquals(1, checkExit);
+        assertEquals(0, cli.execute("plan", "-f", taskFile.toString()));
+        assertEquals(0, cli.execute("check", "-f", taskFile.toString()));
 
         JsonNode report = objectMapper.readTree(reportsDir.resolve("report.json").toFile());
         assertEquals("small_table_once", report.path("plan").path("object_class").asText());
         assertEquals("schema -> exact diff", report.path("plan").path("selected_path").asText());
+        assertEquals("CONSISTENT", report.path("result").path("status").asText());
+        assertEquals("exact", report.path("result").path("consistency_level").asText());
+    }
+
+    @Test
+    void shouldRunMysqlDialectFallbackExactDiff() throws Exception {
+        Path tempDir = Files.createTempDirectory("data-audit-jdbc-mysql-small");
+        Path sourceDb = tempDir.resolve("source.db");
+        Path targetDb = tempDir.resolve("target.db");
+        createOrdersTable(sourceDb);
+        createOrdersTable(targetDb);
+        insert(sourceDb, 1, "paid", "10.00", "2026-03-10");
+        insert(targetDb, 1, "paid", "10.00", "2026-03-10");
+
+        Path taskFile = tempDir.resolve("task.yaml");
+        Path reportsDir = tempDir.resolve("reports");
+        Files.writeString(taskFile, jdbcYaml("jdbc_mysql_small_it", sourceDb, targetDb, reportsDir, 1L, null, "mysql"), StandardCharsets.UTF_8);
+
+        CommandLine cli = new CommandLine(new DataAuditMain());
+        assertEquals(0, cli.execute("plan", "-f", taskFile.toString()));
+        assertEquals(0, cli.execute("check", "-f", taskFile.toString()));
+
+        JsonNode report = objectMapper.readTree(reportsDir.resolve("report.json").toFile());
+        assertEquals("small_table_once", report.path("plan").path("object_class").asText());
+        assertEquals("schema -> exact diff", report.path("plan").path("selected_path").asText());
+        assertEquals("CONSISTENT", report.path("result").path("status").asText());
+    }
+
+    @Test
+    void shouldFindSuspectSlicesForPartitionedJdbcFallback() throws Exception {
+        Path tempDir = Files.createTempDirectory("data-audit-jdbc-slices");
+        Path sourceDb = tempDir.resolve("source.db");
+        Path targetDb = tempDir.resolve("target.db");
+        createOrdersTable(sourceDb);
+        createOrdersTable(targetDb);
+        insert(sourceDb, 1, "paid", "10.00", "2026-03-10");
+        insert(sourceDb, 2, "new", "20.00", "2026-03-11");
+        insert(targetDb, 1, "paid", "99.99", "2026-03-10");
+        insert(targetDb, 2, "new", "20.00", "2026-03-11");
+
+        Path taskFile = tempDir.resolve("task.yaml");
+        Path reportsDir = tempDir.resolve("reports");
+        Files.writeString(taskFile, jdbcYaml("jdbc_slice_it", sourceDb, targetDb, reportsDir, 1_000_000L, "dt"), StandardCharsets.UTF_8);
+
+        int checkExit = new CommandLine(new DataAuditMain()).execute("check", "-f", taskFile.toString());
+        assertEquals(1, checkExit);
+
+        JsonNode report = objectMapper.readTree(reportsDir.resolve("report.json").toFile());
+        assertEquals("gate -> signal -> localization -> drilldown", report.path("plan").path("selected_path").asText());
         assertEquals("DIFF_FOUND", report.path("result").path("status").asText());
-        assertEquals("checksum_mismatch", report.path("result").path("root_cause").asText());
+        assertEquals("dt=2026-03-10", report.path("result").path("suspect_slices").get(0).path("slice_key").asText());
+    }
+
+    @Test
+    void shouldApplyRenameMappingAndNormalizationFromSemantics() throws Exception {
+        Path tempDir = Files.createTempDirectory("data-audit-jdbc-rename");
+        Path sourceDb = tempDir.resolve("source.db");
+        Path targetDb = tempDir.resolve("target.db");
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + sourceDb);
+             Statement statement = connection.createStatement()) {
+            statement.execute("create table source_orders(order_id integer primary key, status text, old_amount decimal(10,2), dt text)");
+            statement.execute("insert into source_orders(order_id, status, old_amount, dt) values (1, 'PAID', 10.0, '2026-03-10')");
+        }
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + targetDb);
+             Statement statement = connection.createStatement()) {
+            statement.execute("create table target_orders(order_id integer primary key, status text, amount decimal(10,2), dt text)");
+            statement.execute("insert into target_orders(order_id, status, amount, dt) values (1, 'paid', 10.00, '2026-03-10')");
+        }
+
+        Path taskFile = tempDir.resolve("task.yaml");
+        Path reportsDir = tempDir.resolve("reports");
+        String yaml = ""
+                + "task:\n"
+                + "  name: jdbc_rename_it\n"
+                + "boundary:\n"
+                + "  type: job_finish\n"
+                + "source:\n"
+                + "  type: jdbc\n"
+                + "  url: jdbc:sqlite:" + sourceDb.toString().replace("\\", "/") + "\n"
+                + "  table: source_orders\n"
+                + "  options:\n"
+                + "    dialect: postgres\n"
+                + "target:\n"
+                + "  type: jdbc\n"
+                + "  url: jdbc:sqlite:" + targetDb.toString().replace("\\", "/") + "\n"
+                + "  table: target_orders\n"
+                + "  options:\n"
+                + "    dialect: postgres\n"
+                + "object:\n"
+                + "  key:\n"
+                + "    - order_id\n"
+                + "  columns:\n"
+                + "    - order_id\n"
+                + "    - status\n"
+                + "    - old_amount\n"
+                + "    - dt\n"
+                + "  estimated_rows: 1\n"
+                + "normalize:\n"
+                + "  case_insensitive_columns:\n"
+                + "    - status\n"
+                + "  decimal_scale:\n"
+                + "    amount: 2\n"
+                + "semantics:\n"
+                + "  ddl:\n"
+                + "    rename_mapping:\n"
+                + "      old_amount: amount\n"
+                + "output:\n"
+                + "  dir: " + reportsDir.toString().replace("\\", "/") + "\n";
+        Files.writeString(taskFile, yaml, StandardCharsets.UTF_8);
+
+        int checkExit = new CommandLine(new DataAuditMain()).execute("check", "-f", taskFile.toString());
+        assertEquals(0, checkExit);
+
+        JsonNode report = objectMapper.readTree(reportsDir.resolve("report.json").toFile());
+        assertEquals("CONSISTENT", report.path("result").path("status").asText());
+        assertEquals("compatible", report.path("result").path("ddl_audit").path("verdict").asText());
+    }
+
+    private String jdbcYaml(String taskName,
+                            Path sourceDb,
+                            Path targetDb,
+                            Path reportsDir,
+                            long estimatedRows,
+                            String partitionBy) {
+        return jdbcYaml(taskName, sourceDb, targetDb, reportsDir, estimatedRows, partitionBy, "postgres");
+    }
+
+    private String jdbcYaml(String taskName,
+                            Path sourceDb,
+                            Path targetDb,
+                            Path reportsDir,
+                            long estimatedRows,
+                            String partitionBy,
+                            String dialect) {
+        StringBuilder builder = new StringBuilder();
+        builder.append("task:\n")
+                .append("  name: ").append(taskName).append('\n')
+                .append("boundary:\n")
+                .append("  type: job_finish\n")
+                .append("source:\n")
+                .append("  type: jdbc\n")
+                .append("  url: jdbc:sqlite:").append(sourceDb.toString().replace("\\", "/")).append('\n')
+                .append("  table: orders\n")
+                .append("  options:\n")
+                .append("    dialect: ").append(dialect).append('\n')
+                .append("target:\n")
+                .append("  type: jdbc\n")
+                .append("  url: jdbc:sqlite:").append(targetDb.toString().replace("\\", "/")).append('\n')
+                .append("  table: orders\n")
+                .append("  options:\n")
+                .append("    dialect: ").append(dialect).append('\n')
+                .append("object:\n")
+                .append("  key:\n")
+                .append("    - order_id\n")
+                .append("  columns:\n")
+                .append("    - order_id\n")
+                .append("    - status\n")
+                .append("    - amount\n")
+                .append("    - dt\n")
+                .append("  estimated_rows: ").append(estimatedRows).append('\n');
+        if (partitionBy != null) {
+            builder.append("  partition_by:\n")
+                    .append("    - ").append(partitionBy).append('\n');
+        }
+        builder.append("normalize:\n")
+                .append("  decimal_scale:\n")
+                .append("    amount: 2\n")
+                .append("output:\n")
+                .append("  dir: ").append(reportsDir.toString().replace("\\", "/")).append('\n');
+        return builder.toString();
     }
 
     private void createOrdersTable(Path dbPath) throws Exception {
@@ -162,6 +226,14 @@ class SqliteDialectCliIntegrationTest {
         try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + dbPath);
              Statement statement = connection.createStatement()) {
             statement.execute("insert into orders(order_id, status, amount, dt) values (" + orderId + ", '" + status + "', " + amount + ", '" + dt + "')");
+        }
+    }
+
+    private static void loadSqliteDriver() {
+        try {
+            Class.forName("org.sqlite.JDBC");
+        } catch (ClassNotFoundException e) {
+            throw new IllegalStateException("SQLite JDBC driver is not available on the test classpath", e);
         }
     }
 }

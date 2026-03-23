@@ -1,0 +1,27 @@
+task:
+  name: trino_small_table_exact
+boundary:
+  type: job_finish
+query_connector:
+  type: trino
+  uri: jdbc:trino://trino-coordinator:8080
+  user: audit
+source:
+  type: trino
+  catalog: tpch
+  schema: tiny
+  table: orders
+target:
+  type: trino
+  catalog: tpch
+  schema: tiny
+  table: orders
+object:
+  key:
+    - orderkey
+  columns:
+    - orderkey
+    - orderstatus
+  estimated_rows: 15000
+output:
+  dir: ./reports/trino_small_table_exact

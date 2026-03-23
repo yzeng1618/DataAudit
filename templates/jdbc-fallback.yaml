@@ -1,0 +1,36 @@
+task:
+  name: jdbc_fallback_check
+boundary:
+  type: job_finish
+source:
+  type: jdbc
+  url: jdbc:postgresql://source:5432/app
+  username: app
+  password: source_password
+  table: public.orders
+  options:
+    dialect: postgres
+target:
+  type: jdbc
+  url: jdbc:postgresql://target:5432/app
+  username: app
+  password: target_password
+  table: public.orders
+  options:
+    dialect: postgres
+object:
+  key:
+    - order_id
+  columns:
+    - order_id
+    - status
+    - amount
+    - dt
+  partition_by:
+    - dt
+  estimated_rows: 1000000
+normalize:
+  decimal_scale:
+    amount: 2
+output:
+  dir: ./reports/jdbc_fallback_check

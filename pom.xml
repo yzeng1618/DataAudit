@@ -16,6 +16,7 @@
         <module>data-audit-spi</module>
         <module>data-audit-core</module>
         <module>data-audit-cli</module>
+        <module>data-audit-connector-trino</module>
         <module>data-audit-connector-jdbc</module>
         <module>data-audit-connector-iceberg</module>
         <module>data-audit-state-sqlite</module>
@@ -39,6 +40,8 @@
         <iceberg.version>1.6.1</iceberg.version>
         <hadoop.version>3.3.6</hadoop.version>
         <postgresql.version>42.7.4</postgresql.version>
+        <mysql.version>8.2.0</mysql.version>
+        <trino.version>471</trino.version>
     </properties>
 
     <dependencyManagement>
@@ -104,8 +107,23 @@
                 <version>${iceberg.version}</version>
             </dependency>
             <dependency>
+                <groupId>org.apache.iceberg</groupId>
+                <artifactId>iceberg-data</artifactId>
+                <version>${iceberg.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.iceberg</groupId>
+                <artifactId>iceberg-parquet</artifactId>
+                <version>${iceberg.version}</version>
+            </dependency>
+            <dependency>
                 <groupId>org.apache.hadoop</groupId>
                 <artifactId>hadoop-common</artifactId>
+                <version>${hadoop.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.hadoop</groupId>
+                <artifactId>hadoop-mapreduce-client-core</artifactId>
                 <version>${hadoop.version}</version>
             </dependency>
             <dependency>
@@ -120,8 +138,24 @@
                 <version>${postgresql.version}</version>
             </dependency>
             <dependency>
+                <groupId>com.mysql</groupId>
+                <artifactId>mysql-connector-j</artifactId>
+                <version>${mysql.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.trino</groupId>
+                <artifactId>trino-jdbc</artifactId>
+                <version>${trino.version}</version>
+            </dependency>
+            <dependency>
                 <groupId>org.testcontainers</groupId>
                 <artifactId>junit-jupiter</artifactId>
+                <version>${testcontainers.version}</version>
+                <scope>test</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>testcontainers</artifactId>
                 <version>${testcontainers.version}</version>
                 <scope>test</scope>
             </dependency>

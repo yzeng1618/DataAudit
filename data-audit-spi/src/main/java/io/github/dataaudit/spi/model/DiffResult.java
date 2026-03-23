@@ -6,6 +6,7 @@ import java.util.List;
 public class DiffResult {
     public boolean consistent = true;
     public String rootCause = "consistent";
+    public boolean sampled;
     public List<DiffSample> samples = new ArrayList<>();
 
     public boolean isConsistent() {
@@ -25,7 +26,7 @@ public class DiffResult {
         public String key;
         public String sourceValue;
         public String targetValue;
-        public String segmentKey;
+        public String sliceKey;
 
         public String getType() {
             return type;
@@ -43,8 +44,8 @@ public class DiffResult {
             return targetValue;
         }
 
-        public String getSegmentKey() {
-            return segmentKey;
+        public String getSliceKey() {
+            return sliceKey;
         }
     }
 }

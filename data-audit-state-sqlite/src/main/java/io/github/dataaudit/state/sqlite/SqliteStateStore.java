@@ -3,7 +3,7 @@ package io.github.dataaudit.state.sqlite;
 import io.github.dataaudit.spi.model.ExecutionPlan;
 import io.github.dataaudit.spi.model.ReportModel;
 import io.github.dataaudit.spi.model.RunState;
-import io.github.dataaudit.spi.model.SegmentDescriptor;
+import io.github.dataaudit.spi.model.SliceDescriptor;
 import io.github.dataaudit.spi.state.StateStore;
 
 import java.nio.file.Files;
@@ -37,7 +37,7 @@ public class SqliteStateStore implements StateStore {
         try (Connection connection = getConnection();
              Statement statement = connection.createStatement()) {
             statement.executeUpdate("create table if not exists run_record (run_id text primary key, task_name text, boundary_fingerprint text, selected_path text, status text, report_json_path text, report_html_path text, started_at text, finished_at text)");
-            statement.executeUpdate("create table if not exists segment_record (run_id text, segment_key text, status text, resume_token text, source_digest text, target_digest text)");
+            statement.executeUpdate("create table if not exists slice_record (run_id text, slice_key text, status text, resume_token text)");
         }
     }
 
@@ -67,21 +67,19 @@ public class SqliteStateStore implements StateStore {
     }
 
     @Override
-    public void saveSegments(String runId, List<SegmentDescriptor> segments, String status) throws Exception {
+    public void saveSlices(String runId, List<SliceDescriptor> slices, String status) throws Exception {
         try (Connection connection = getConnection()) {
-            try (PreparedStatement delete = connection.prepareStatement("delete from segment_record where run_id = ?")) {
+            try (PreparedStatement delete = connection.prepareStatement("delete from slice_record where run_id = ?")) {
                 delete.setString(1, runId);
                 delete.executeUpdate();
             }
             try (PreparedStatement insert = connection.prepareStatement(
-                    "insert into segment_record(run_id, segment_key, status, resume_token, source_digest, target_digest) values(?,?,?,?,?,?)")) {
-                for (SegmentDescriptor segment : segments) {
+                    "insert into slice_record(run_id, slice_key, status, resume_token) values(?,?,?,?)")) {
+                for (SliceDescriptor slice : slices) {
                     insert.setString(1, runId);
-                    insert.setString(2, segment.segmentKey);
+                    insert.setString(2, slice.sliceKey);
                     insert.setString(3, status);
-                    insert.setString(4, segment.segmentKey);
-                    insert.setString(5, segment.sourceDigest);
-                    insert.setString(6, segment.targetDigest);
+                    insert.setString(4, slice.sliceKey);
                     insert.addBatch();
                 }
                 insert.executeBatch();
@@ -150,29 +148,27 @@ public class SqliteStateStore implements StateStore {
         state.finishedAt = finishedAt == null ? null : OffsetDateTime.parse(finishedAt);
         state.reportJsonPath = resultSet.getString("report_json_path");
         state.reportHtmlPath = resultSet.getString("report_html_path");
-        state.segments = listSegments(state.runId);
+        state.slices = listSlices(state.runId);
         return state;
     }
 
-    private List<RunState.SegmentState> listSegments(String runId) throws Exception {
-        List<RunState.SegmentState> segments = new ArrayList<RunState.SegmentState>();
+    private List<RunState.SliceState> listSlices(String runId) throws Exception {
+        List<RunState.SliceState> slices = new ArrayList<RunState.SliceState>();
         try (Connection connection = getConnection();
              PreparedStatement statement = connection.prepareStatement(
-                     "select * from segment_record where run_id = ? order by segment_key")) {
+                     "select * from slice_record where run_id = ? order by slice_key")) {
             statement.setString(1, runId);
             try (ResultSet resultSet = statement.executeQuery()) {
                 while (resultSet.next()) {
-                    RunState.SegmentState state = new RunState.SegmentState();
-                    state.segmentKey = resultSet.getString("segment_key");
+                    RunState.SliceState state = new RunState.SliceState();
+                    state.sliceKey = resultSet.getString("slice_key");
                     state.status = resultSet.getString("status");
                     state.resumeToken = resultSet.getString("resume_token");
-                    state.sourceDigest = resultSet.getString("source_digest");
-                    state.targetDigest = resultSet.getString("target_digest");
-                    segments.add(state);
+                    slices.add(state);
                 }
             }
         }
-        return segments;
+        return slices;
     }
 
     private Connection getConnection() throws Exception {

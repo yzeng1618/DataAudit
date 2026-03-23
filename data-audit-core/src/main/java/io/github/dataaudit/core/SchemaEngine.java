@@ -8,6 +8,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.LinkedHashSet;
 
 public class SchemaEngine {
     public List<String> compare(TaskFileSpec spec, SchemaModel source, SchemaModel target) {
@@ -28,7 +30,7 @@ public class SchemaEngine {
             }
         }
 
-        if ("strict".equalsIgnoreCase(spec.ddl.mode)) {
+        if ("strict".equalsIgnoreCase(spec.semantics.ddl.mode)) {
             for (String column : targetColumns.keySet()) {
                 if (!sourceColumns.containsKey(column)) {
                     issues.add("Unexpected target column in strict mode: " + column);
@@ -40,9 +42,10 @@ public class SchemaEngine {
 
     private Map<String, SchemaModel.Column> logicalColumns(TaskFileSpec spec, SchemaModel schema) {
         Map<String, SchemaModel.Column> result = new LinkedHashMap<>();
+        Set<String> requestedColumns = requestedColumns(spec);
         for (SchemaModel.Column column : schema.columns) {
-            String logicalName = spec.ddl.renameMapping.getOrDefault(column.name, column.name);
-            if (!spec.object.columns.include.isEmpty() && !spec.object.columns.include.contains(column.name) && !spec.object.columns.include.contains(logicalName)) {
+            String logicalName = spec.semantics.ddl.renameMapping.getOrDefault(column.name, column.name);
+            if (!requestedColumns.isEmpty() && !matchesRequestedColumn(spec, requestedColumns, column.name, logicalName)) {
                 continue;
             }
             column.logicalName = logicalName;
@@ -52,22 +55,84 @@ public class SchemaEngine {
     }
 
     private String normalizeType(String type) {
-        return type == null ? "unknown" : type.toLowerCase(Locale.ROOT);
+        if (type == null) {
+            return "unknown";
+        }
+        String normalized = type.toLowerCase(Locale.ROOT).trim();
+        if (normalized.startsWith("decimal")) {
+            return "decimal";
+        }
+        if (normalized.startsWith("varchar") || normalized.startsWith("char") || "text".equals(normalized) || "string".equals(normalized)) {
+            return "string";
+        }
+        if ("integer".equals(normalized) || "int".equals(normalized)) {
+            return "int";
+        }
+        if ("bigint".equals(normalized) || "long".equals(normalized)) {
+            return "long";
+        }
+        if ("double precision".equals(normalized)) {
+            return "double";
+        }
+        return normalized;
     }
 
     private boolean isCompatible(TaskFileSpec spec, String from, String to) {
-        if ("logical_only".equalsIgnoreCase(spec.ddl.mode)) {
+        if ("logical_only".equalsIgnoreCase(spec.semantics.ddl.mode)) {
             return true;
         }
-        for (TaskFileSpec.TypeRuleSpec rule : spec.ddl.typeRules) {
+        String normalizedFrom = normalizeType(from);
+        String normalizedTo = normalizeType(to);
+        if (normalizedFrom.equals(normalizedTo)) {
+            return true;
+        }
+        if (isCompatibleNumericPair(normalizedFrom, normalizedTo)) {
+            return true;
+        }
+        for (TaskFileSpec.TypeRuleSpec rule : spec.semantics.ddl.typeRules) {
             if (rule.from != null && rule.to != null
-                    && rule.from.equalsIgnoreCase(from)
-                    && rule.to.equalsIgnoreCase(to)
+                    && normalizeType(rule.from).equalsIgnoreCase(normalizedFrom)
+                    && normalizeType(rule.to).equalsIgnoreCase(normalizedTo)
                     && ("allow".equalsIgnoreCase(rule.action) || "warn".equalsIgnoreCase(rule.action))) {
                 return true;
             }
         }
         return false;
     }
-}
 
+    private Set<String> requestedColumns(TaskFileSpec spec) {
+        Set<String> requestedColumns = new LinkedHashSet<>();
+        if (spec.object == null || spec.object.columns == null) {
+            return requestedColumns;
+        }
+        requestedColumns.addAll(spec.object.columns);
+        return requestedColumns;
+    }
+
+    private boolean matchesRequestedColumn(TaskFileSpec spec,
+                                          Set<String> requestedColumns,
+                                          String physicalName,
+                                          String logicalName) {
+        if (requestedColumns.contains(physicalName) || requestedColumns.contains(logicalName)) {
+            return true;
+        }
+        for (String requestedColumn : requestedColumns) {
+            String mappedColumn = spec.semantics.ddl.renameMapping.get(requestedColumn);
+            if (physicalName.equals(mappedColumn) || logicalName.equals(mappedColumn)) {
+                return true;
+            }
+            for (Map.Entry<String, String> entry : spec.semantics.ddl.renameMapping.entrySet()) {
+                if (requestedColumn.equals(entry.getValue())
+                        && (physicalName.equals(entry.getKey()) || logicalName.equals(entry.getKey()))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean isCompatibleNumericPair(String left, String right) {
+        return ("int".equals(left) && "long".equals(right))
+                || ("long".equals(left) && "int".equals(right));
+    }
+}

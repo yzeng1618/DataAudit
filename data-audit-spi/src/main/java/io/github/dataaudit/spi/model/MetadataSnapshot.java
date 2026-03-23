@@ -9,6 +9,5 @@ public class MetadataSnapshot {
     public BoundaryRef boundary;
     public SchemaModel schema = new SchemaModel();
     public Map<String, String> attributes = new LinkedHashMap<>();
-    public List<SegmentDescriptor> segmentHints = new ArrayList<>();
+    public List<SliceDescriptor> sliceHints = new ArrayList<>();
 }
-

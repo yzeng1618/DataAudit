@@ -21,13 +21,12 @@ public class ConnectorRegistry {
         return new ConnectorRegistry(factories);
     }
 
-    public ConnectorBundle open(TaskFileSpec.EndpointSpec endpointSpec) throws Exception {
+    public ConnectorBundle open(TaskFileSpec spec, TaskFileSpec.EndpointSpec endpointSpec) throws Exception {
         for (ConnectorFactory factory : factories) {
             if (factory.supports(endpointSpec)) {
-                return factory.open(endpointSpec);
+                return factory.open(spec, endpointSpec);
             }
         }
         throw new IllegalArgumentException("Unsupported endpoint type: " + endpointSpec.type);
     }
 }
-

@@ -1,6 +1,6 @@
 # data-audit
 
-> 暂定名。一个面向大数据与湖仓场景的任务后一致性审计 CLI。
+> 一个面向大数据与湖仓场景的任务后一致性审计 CLI。
 
 `data-audit` 不参与同步链路，不依赖 SeaTunnel / DataX / Flink CDC 等同步框架，也不要求中心 repository 或 Web 平台。它只在任务完成后的稳定边界上执行校验：
 
@@ -13,6 +13,21 @@
 - 问题落在哪个分区、哪个 snapshot、哪个时间窗口
 - 是漏数、重复、删除未生效，还是 DDL / schema evolution 引发的误报
 - 下次复查时，能不能只重查受影响范围
+
+## v1 Trino-First
+
+当前 v1 配置已经切换到 `task / boundary / query_connector / source / target / object / normalize / semantics / output`。
+
+- `type: trino` 是推荐写法，表示对象通过 Trino 查询平面访问
+- `type: sql` 仍可用，但在 v1 中只作为 `type: trino` 的兼容别名
+- `type: jdbc` 作为直连 fallback
+- `type: iceberg` 保留 snapshot/native metadata 真值路径
+
+`type: trino` 适用于所有能通过 Trino catalog 暴露的对象，例如 MySQL / PostgreSQL / Oracle / Hive / Iceberg / Hudi / Delta / Paimon 的结果面访问。
+如果需要 `snapshot` 真值、manifest/schema 元数据或 snapshot-pinned 读取，仍应使用 `type: iceberg` 走原生路径。
+
+迁移说明见 [docs/migration-v1.md](docs/migration-v1.md)。
+新模板见 `templates/small-table-trino.yaml`、`templates/partitioned-table-trino.yaml`、`templates/jdbc-fallback.yaml`、`templates/iceberg-snapshot-native.yaml`。
 
 ## 核心原则
 
@@ -79,18 +94,22 @@ planner 的职责不是“选算法炫技”，而是根据对象能力、边界
 - 未来可选控制面只做报告汇聚、模板中心、任务目录，不改变 CLI-only 结论
 
 完整架构见 [docs/design.md](docs/design.md)。
+配置样例、参数说明和当前实现限制见 [docs/config-examples.md](docs/config-examples.md)。
 
 ## 首版 Connector 策略
 
-首版实现范围固定为两条主线：
+当前实现范围固定为三条主线：
 
+- `connector-trino`：作为统一查询平面，承接所有可通过 Trino catalog 暴露的对象，并把 `signal / localization / drilldown` 尽量下推到 Trino
 - `connector-jdbc`：作为通用 SQL 接入层，承接 PostgreSQL / MySQL / Hive JDBC / Doris JDBC 等可 SQL 化对象
-- `connector-iceberg`：作为首个原生湖仓 connector，优先验证 `snapshot-aware + metadata-first` 路径
+- `connector-iceberg`：作为首个原生湖仓 connector，优先验证 `snapshot-aware + metadata-first` 路径，并补齐原生数据读取
 
 这意味着：
 
-- Hive 与 Doris 首版不做 native connector，而是统一通过 `type: jdbc` 接入
+- 如果对象已经能通过 Trino catalog 暴露，优先使用 `type: trino`，而不是为每个底层系统单独走直连 JDBC
+- Hive 与 Doris 当前不做 native connector，而是统一通过 `type: jdbc` 接入
 - 当需要利用 `snapshot / manifest / partition summary` 等原生元数据能力时，首版优先支持 Iceberg
+- `jdbc <-> iceberg` 当前已可执行真实 `check`，不再默认返回 `PARTIAL`
 - compare 核心逻辑只保留在 `core`，connector 只负责读数据、读元数据和暴露能力
 
 JDBC 接入建议显式配置方言，首版支持：
@@ -234,7 +253,7 @@ PowerShell 会话里执行：
 
 ## 第二层测试矩阵
 
-仓库内还提供了第二层验证脚本，用于覆盖 JDBC 方言适配、Iceberg metadata-first 和 PostgreSQL E2E：
+仓库内还提供了第二层验证脚本，用于覆盖 JDBC 方言适配、`jdbc <-> iceberg` 真实对比和 PostgreSQL E2E：
 
 ```powershell
 . .\scripts\use-java17.ps1
@@ -261,12 +280,20 @@ PowerShell 会话里执行：
 - `doris_jdbc_result_diff`
   - 结果：`DIFF_FOUND`
   - 路径：`schema -> exact diff`
-  - 根因：`checksum_mismatch`
-- `iceberg_metadata_first`
-  - 结果：`PARTIAL`
+  - 根因：`latest_state_mismatch`
+- `jdbc_to_iceberg_consistent`
+  - 结果：`CONSISTENT`
   - 路径：`boundary metadata -> schema -> summary -> segment -> diff`
-  - 根因：`data_reader_unavailable`
-  - 已定位：`manifest=0`
+  - 说明：JDBC 源端与 Iceberg 目标端的真实一致性校验
+- `jdbc_to_iceberg_diff`
+  - 结果：`DIFF_FOUND`
+  - 路径：`boundary metadata -> schema -> summary -> segment -> diff`
+  - 根因：`latest_state_mismatch`
+- `iceberg_to_jdbc_partitioned`
+  - 结果：`DIFF_FOUND`
+  - 路径：`boundary metadata -> schema -> summary -> segment -> diff`
+  - 根因：`latest_state_mismatch`
+  - 已定位：`dt=2026-03-10`
 
 脚本执行成功后，验证产物会落到：
 
@@ -289,7 +316,7 @@ PowerShell 会话里执行：
 - `ReflectionIcebergMetadataReaderTest`
   - 验证 `connector-iceberg` 能读取本地 Iceberg table 的 snapshot、schema 和 manifest hints
 - `IcebergMetadataCliIntegrationTest`
-  - 验证 CLI 在 `target.type: iceberg` 时会进入 `metadata-first` 路径，并在缺少原生 data reader 的情况下返回 `PARTIAL`
+  - 验证 `jdbc -> iceberg` 和 `iceberg -> jdbc` 会进入 `metadata-first` 路径并执行真实 diff
 - `JdbcCliIntegrationTest`
   - 使用 Testcontainers 跑 PostgreSQL 真实 JDBC E2E
   - 如果当前环境没有 Docker，脚本会明确标记为 `SKIPPED`
@@ -361,6 +388,8 @@ mvn -q -DskipTests package
   - `data-audit-cli/target/data-audit.jar`
   - 选定的 `task.yaml`
 
+- `data-audit.jar` 是 fat jar，默认已打包 SQLite / PostgreSQL / MySQL / Trino 以及 Iceberg 所需运行时依赖。
+
 3. 准备任务配置
 
 - 可以直接从 `templates/` 拷贝一份再改：
@@ -375,6 +404,12 @@ mvn -q -DskipTests package
 export SRC_PASSWORD='***'
 export TGT_PASSWORD='***'
 ```
+
+- JDBC 场景建议同时补上这些参数：
+  - URL：`connectTimeout`、`socketTimeout`
+  - `options.query_timeout_seconds`
+  - `options.fetch_size`
+  - `options.progress_log_interval_rows`
 
 4. 先跑 `plan`
 
@@ -393,6 +428,20 @@ java -jar ./bin/data-audit.jar plan -f ./tasks/task.yaml
 
 ```bash
 java -jar ./bin/data-audit.jar check -f ./tasks/task.yaml
+```
+
+当前 `check` 已经会输出阶段日志和 JDBC 读取进度，例如：
+
+- `Stage 1/6: resolving boundary`
+- `Stage 3/6: reading source rows for exact diff`
+- `JDBC read progress [jdbc:orders]: fetched 5000 rows`
+- `Stage 5/6 progress: diffing suspect segment 1/3 [dt=2026-03-10]`
+
+如果需要后台执行，建议：
+
+```bash
+nohup java -jar ./bin/data-audit.jar check -f ./tasks/task.yaml > ./logs/check.log 2>&1 &
+tail -f ./logs/check.log
 ```
 
 执行完成后会在 `output.dir` 下生成：
@@ -465,7 +514,14 @@ docker run --rm \
 推荐先从当前已经稳定的组合开始：
 
 - `jdbc -> jdbc`：完整支持，适合首批生产验证
-- `jdbc -> iceberg`：当前适合先验证 `metadata-first` 和报告输出
+- `jdbc <-> iceberg`：已支持真实对比，适合继续验证 snapshot 边界与 metadata-first 路径
+
+对性能的当前建议是：
+
+- 小表优先走 `schema -> exact diff`
+- 大表 / 分区表优先走 `summary -> segment -> diff`
+- 不要把唯一键放进 `partition_keys` 或 `compare.segment.by`
+- 如果只比较少数列，显式配置 `object.columns.include` 或直接使用 `query:`
 
 #### 4.4 服务器上的真实示例 `task.yaml`
 
@@ -594,7 +650,7 @@ state:
 
 ##### jdbc -> iceberg
 
-适用于 JDBC 源端与 Iceberg 目标表之间的 snapshot 边界校验。当前更适合先验证 `metadata-first` 路径和 suspect hint 输出：
+适用于 JDBC 源端与 Iceberg 目标表之间的 snapshot 边界校验。当前已支持真实比对，planner 会先走 `metadata-first`，再在必要时进入统一的 summary / segment / diff：
 
 ```yaml
 task:

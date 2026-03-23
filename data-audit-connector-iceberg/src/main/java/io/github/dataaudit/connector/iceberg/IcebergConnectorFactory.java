@@ -17,16 +17,29 @@ public class IcebergConnectorFactory implements ConnectorFactory {
     }
 
     @Override
-    public ConnectorBundle open(TaskFileSpec.EndpointSpec endpointSpec) {
+    public ConnectorBundle open(TaskFileSpec spec, TaskFileSpec.EndpointSpec endpointSpec) {
+        IcebergTableSupport tableSupport = new IcebergTableSupport(endpointSpec);
         CapabilityDescriptor capabilityDescriptor = new CapabilityDescriptor();
         capabilityDescriptor.connectorType = "iceberg";
         capabilityDescriptor.supportsSnapshotBoundary = true;
         capabilityDescriptor.supportsMetadataStats = true;
         capabilityDescriptor.supportsPartitionPrune = true;
-        capabilityDescriptor.supportsColumnProjection = false;
-        capabilityDescriptor.supportsKeyedDiff = false;
-        capabilityDescriptor.supportsKeylessMultiset = false;
+        capabilityDescriptor.supportsColumnProjection = true;
+        capabilityDescriptor.supportsSignalPushdown = false;
+        capabilityDescriptor.supportsGroupedSignalPushdown = false;
+        capabilityDescriptor.supportsNativeMetadata = true;
+        capabilityDescriptor.supportsKeyedDiff = true;
+        capabilityDescriptor.supportsKeylessMultiset = true;
+        capabilityDescriptor.sourceLoadPolicy = "balanced";
         capabilityDescriptor.attributes.put("mode", "metadata_first");
-        return new ConnectorBundle(capabilityDescriptor, null, new ReflectionIcebergMetadataReader(endpointSpec), null);
+        IcebergDataReader endpoint = new IcebergDataReader(spec, tableSupport);
+        return new ConnectorBundle(
+                capabilityDescriptor,
+                endpoint,
+                endpoint,
+                endpoint,
+                new ReflectionIcebergMetadataReader(endpointSpec),
+                null
+        );
     }
 }

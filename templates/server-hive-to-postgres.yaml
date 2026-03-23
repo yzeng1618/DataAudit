@@ -18,15 +18,24 @@ source:
     where dt = '2026-03-10'
   options:
     dialect: hive
+    query_timeout_seconds: 600
+    fetch_size: 2000
+    progress_log_interval_rows: 5000
 
 target:
   type: jdbc
-  url: jdbc:postgresql://postgres-ads.prod:5432/ads
+  url: jdbc:postgresql://postgres-ads.prod:5432/ads?connectTimeout=5000&socketTimeout=300000&tcpKeepAlive=true
   username: ads_read
   password: ${TGT_PASSWORD}
-  table: public.orders_ads
+  query: |
+    select order_id, shop_id, status, amount, dt
+    from public.orders_ads
+    where dt = '2026-03-10'
   options:
     dialect: postgres
+    query_timeout_seconds: 300
+    fetch_size: 2000
+    progress_log_interval_rows: 5000
 
 object:
   key:

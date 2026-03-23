@@ -7,6 +7,5 @@ public interface ConnectorFactory {
 
     boolean supports(TaskFileSpec.EndpointSpec endpointSpec);
 
-    ConnectorBundle open(TaskFileSpec.EndpointSpec endpointSpec) throws Exception;
+    ConnectorBundle open(TaskFileSpec spec, TaskFileSpec.EndpointSpec endpointSpec) throws Exception;
 }
-

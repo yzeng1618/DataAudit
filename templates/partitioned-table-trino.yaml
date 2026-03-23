@@ -1,0 +1,30 @@
+task:
+  name: trino_partitioned_signal
+boundary:
+  type: job_finish
+query_connector:
+  type: trino
+  uri: jdbc:trino://trino-coordinator:8080
+  user: audit
+source:
+  type: trino
+  query: |
+    select orderkey, orderstatus, dt
+    from mart.orders_src
+target:
+  type: trino
+  query: |
+    select orderkey, orderstatus, dt
+    from mart.orders_tgt
+object:
+  key:
+    - orderkey
+  columns:
+    - orderkey
+    - orderstatus
+    - dt
+  partition_by:
+    - dt
+  estimated_rows: 5000000
+output:
+  dir: ./reports/trino_partitioned_signal

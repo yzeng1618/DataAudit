@@ -35,6 +35,18 @@ public class BoundaryResolver {
     }
 
     private MetadataReader preferredMetadataReader(ConnectorBundle primary, ConnectorBundle secondary) {
+        if (primary != null
+                && primary.getMetadataReader() != null
+                && primary.getCapabilityDescriptor() != null
+                && primary.getCapabilityDescriptor().supportsSnapshotBoundary) {
+            return primary.getMetadataReader();
+        }
+        if (secondary != null
+                && secondary.getMetadataReader() != null
+                && secondary.getCapabilityDescriptor() != null
+                && secondary.getCapabilityDescriptor().supportsSnapshotBoundary) {
+            return secondary.getMetadataReader();
+        }
         if (primary != null && primary.getMetadataReader() != null) {
             return primary.getMetadataReader();
         }
@@ -54,4 +66,3 @@ public class BoundaryResolver {
         return builder.toString();
     }
 }
-

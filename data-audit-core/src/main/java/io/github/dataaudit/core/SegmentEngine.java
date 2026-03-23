@@ -1,65 +1,136 @@
 package io.github.dataaudit.core;
 
-import io.github.dataaudit.spi.connector.DataReader;
+import io.github.dataaudit.spi.connector.RowStreamReader;
+import io.github.dataaudit.spi.connector.SignalReader;
 import io.github.dataaudit.spi.model.ReadRequest;
-import io.github.dataaudit.spi.model.SegmentDescriptor;
+import io.github.dataaudit.spi.model.SliceDescriptor;
+import io.github.dataaudit.spi.model.SliceSignal;
 import io.github.dataaudit.spi.model.SummaryMetrics;
 import io.github.dataaudit.spi.model.TaskFileSpec;
 
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
 
 public class SegmentEngine {
+    private static final long MAX_EXACT_ROWS = PlanningService.MAX_EXACT_ROWS;
+    static final int DEFAULT_BUCKET_COUNT = 16;
+    static final String VIRTUAL_BUCKET_PREFIX = "bucket=";
+
     private final SummaryEngine summaryEngine;
+
+    public SegmentEngine() {
+        this(new SummaryEngine(new NormalizationService(), new HashProvider()));
+    }
 
     public SegmentEngine(SummaryEngine summaryEngine) {
         this.summaryEngine = summaryEngine;
     }
 
-    public List<SegmentDescriptor> findSuspectSegments(DataReader source,
-                                                       DataReader target,
-                                                       TaskFileSpec spec) throws Exception {
-        String segmentColumn = resolveSegmentColumn(spec);
-        if (segmentColumn == null) {
+    public List<SliceDescriptor> findSuspectSlices(SignalReader source,
+                                                   SignalReader target,
+                                                   TaskFileSpec spec) throws Exception {
+        String sliceColumn = resolveSliceColumn(spec);
+        if (sliceColumn == null) {
             return new ArrayList<>();
         }
 
-        ReadRequest baseRequest = new ReadRequest();
-        Set<String> values = new LinkedHashSet<>();
-        values.addAll(source.listSegmentValues(segmentColumn, baseRequest));
-        values.addAll(target.listSegmentValues(segmentColumn, baseRequest));
+        ReadRequest baseRequest = ReadRequestFactory.baseRequest(spec);
+        List<SliceSignal> sourceSignals = source.readSliceSignals(sliceColumn, baseRequest);
+        List<SliceSignal> targetSignals = target.readSliceSignals(sliceColumn, baseRequest);
 
-        List<SegmentDescriptor> suspects = new ArrayList<>();
-        for (String value : values) {
-            ReadRequest request = new ReadRequest();
-            request.segmentColumn = segmentColumn;
-            request.segmentValue = value;
-            SummaryMetrics sourceSummary = summaryEngine.summarize(source, spec, request);
-            SummaryMetrics targetSummary = summaryEngine.summarize(target, spec, request);
+        Map<String, SliceSignal> merged = new LinkedHashMap<>();
+        for (SliceSignal signal : sourceSignals) {
+            merged.put(signal.sliceKey, signal);
+        }
+
+        List<SliceDescriptor> suspects = new ArrayList<>();
+        for (SliceSignal targetSignal : targetSignals) {
+            SliceSignal sourceSignal = merged.remove(targetSignal.sliceKey);
+            if (!equivalent(sourceSignal, targetSignal)) {
+                suspects.add(toDescriptor(sourceSignal, targetSignal));
+            }
+        }
+
+        for (SliceSignal sourceSignal : merged.values()) {
+            suspects.add(toDescriptor(sourceSignal, null));
+        }
+        return suspects;
+    }
+
+    public String resolveSliceColumn(TaskFileSpec spec) {
+        if (spec.object != null && spec.object.partitionBy != null && !spec.object.partitionBy.isEmpty()) {
+            return spec.object.partitionBy.get(0);
+        }
+        return null;
+    }
+
+    public List<SliceDescriptor> findSuspectBuckets(RowStreamReader source,
+                                                    RowStreamReader target,
+                                                    TaskFileSpec spec) throws Exception {
+        if (!hasKey(spec)) {
+            return new ArrayList<>();
+        }
+
+        int bucketCount = resolveBucketCount(spec);
+        String bucketColumn = spec.object.key.get(0);
+        List<SliceDescriptor> suspects = new ArrayList<>();
+        for (int bucketId = 0; bucketId < bucketCount; bucketId++) {
+            SummaryMetrics sourceSummary = summaryEngine.summarize(
+                    source,
+                    spec,
+                    ReadRequestFactory.bucketRequest(spec, bucketColumn, bucketCount, bucketId)
+            );
+            SummaryMetrics targetSummary = summaryEngine.summarize(
+                    target,
+                    spec,
+                    ReadRequestFactory.bucketRequest(spec, bucketColumn, bucketCount, bucketId)
+            );
             if (!summaryEngine.equivalent(sourceSummary, targetSummary)) {
-                SegmentDescriptor descriptor = new SegmentDescriptor();
-                descriptor.segmentColumn = segmentColumn;
-                descriptor.segmentValue = value;
-                descriptor.segmentKey = segmentColumn + "=" + value;
-                descriptor.reason = "summary_mismatch";
-                descriptor.sourceDigest = sourceSummary.checksum;
-                descriptor.targetDigest = targetSummary.checksum;
+                SliceDescriptor descriptor = new SliceDescriptor();
+                descriptor.sliceKey = VIRTUAL_BUCKET_PREFIX + bucketId + "/" + bucketCount;
+                descriptor.sliceType = "virtual_bucket";
+                descriptor.rowEstimate = Math.max(sourceSummary.rowCount, targetSummary.rowCount);
+                descriptor.drilldownable = descriptor.rowEstimate <= MAX_EXACT_ROWS;
+                descriptor.reason = "bucket_signal_mismatch";
                 suspects.add(descriptor);
             }
         }
         return suspects;
     }
 
-    private String resolveSegmentColumn(TaskFileSpec spec) {
-        if (spec.compare != null && spec.compare.segment != null && spec.compare.segment.by != null && !spec.compare.segment.by.isEmpty()) {
-            return spec.compare.segment.by.get(0);
+    private boolean equivalent(SliceSignal source, SliceSignal target) {
+        if (source == null || target == null) {
+            return false;
         }
-        if (spec.planner != null && spec.planner.hints != null && spec.planner.hints.partitionKeys != null && !spec.planner.hints.partitionKeys.isEmpty()) {
-            return spec.planner.hints.partitionKeys.get(0);
+        return source.rowCount == target.rowCount
+                && (source.checksum == null ? target.checksum == null : source.checksum.equals(target.checksum));
+    }
+
+    private SliceDescriptor toDescriptor(SliceSignal source, SliceSignal target) {
+        SliceDescriptor descriptor = new SliceDescriptor();
+        descriptor.sliceKey = source != null ? source.sliceKey : target.sliceKey;
+        descriptor.sliceType = source != null ? source.sliceType : target.sliceType;
+        long rowEstimate = Math.max(source == null ? 0L : source.rowCount, target == null ? 0L : target.rowCount);
+        descriptor.rowEstimate = rowEstimate;
+        descriptor.drilldownable = rowEstimate <= MAX_EXACT_ROWS;
+        descriptor.reason = "signal_mismatch";
+        return descriptor;
+    }
+
+    private boolean hasKey(TaskFileSpec spec) {
+        return spec.object != null && spec.object.key != null && !spec.object.key.isEmpty();
+    }
+
+    private int resolveBucketCount(TaskFileSpec spec) {
+        long estimatedRows = spec.object == null || spec.object.estimatedRows == null ? -1L : spec.object.estimatedRows;
+        if (estimatedRows < 0L) {
+            return DEFAULT_BUCKET_COUNT;
         }
-        return null;
+        long bucketCount = (estimatedRows + MAX_EXACT_ROWS - 1L) / MAX_EXACT_ROWS;
+        bucketCount = Math.max(DEFAULT_BUCKET_COUNT, bucketCount);
+        bucketCount = Math.min(256L, bucketCount);
+        return (int) bucketCount;
     }
 }
-

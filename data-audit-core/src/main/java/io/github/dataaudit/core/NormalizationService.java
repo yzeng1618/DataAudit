@@ -10,17 +10,19 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 public class NormalizationService {
     public Map<String, Object> normalizeRow(TaskFileSpec spec, Map<String, Object> row) {
         Map<String, Object> normalized = new LinkedHashMap<>();
         List<String> columns = projectedColumns(spec, row);
         for (String column : columns) {
-            String logicalName = spec.ddl.renameMapping.getOrDefault(column, column);
+            String logicalName = spec.semantics.ddl.renameMapping.getOrDefault(column, column);
             Object value = row.get(column);
             normalized.put(logicalName, normalizeValue(spec, logicalName, value));
         }
@@ -38,10 +40,41 @@ public class NormalizationService {
     }
 
     private List<String> projectedColumns(TaskFileSpec spec, Map<String, Object> row) {
-        if (spec.object != null && spec.object.columns != null && spec.object.columns.include != null && !spec.object.columns.include.isEmpty()) {
-            return spec.object.columns.include;
+        if (spec.object != null && spec.object.columns != null && !spec.object.columns.isEmpty()) {
+            List<String> resolved = resolveColumns(spec, row.keySet(), spec.object.columns);
+            if (!resolved.isEmpty()) {
+                return resolved;
+            }
         }
         return new ArrayList<>(row.keySet());
+    }
+
+    private List<String> resolveColumns(TaskFileSpec spec, Set<String> availableColumns, List<String> requestedColumns) {
+        List<String> resolved = new ArrayList<>();
+        Set<String> seen = new LinkedHashSet<>();
+        for (String requested : requestedColumns) {
+            String column = resolveColumn(spec, availableColumns, requested);
+            if (column != null && seen.add(column)) {
+                resolved.add(column);
+            }
+        }
+        return resolved;
+    }
+
+    private String resolveColumn(TaskFileSpec spec, Set<String> availableColumns, String requestedColumn) {
+        if (availableColumns.contains(requestedColumn)) {
+            return requestedColumn;
+        }
+        String mappedColumn = spec.semantics.ddl.renameMapping.get(requestedColumn);
+        if (mappedColumn != null && availableColumns.contains(mappedColumn)) {
+            return mappedColumn;
+        }
+        for (Map.Entry<String, String> entry : spec.semantics.ddl.renameMapping.entrySet()) {
+            if (requestedColumn.equals(entry.getValue()) && availableColumns.contains(entry.getKey())) {
+                return entry.getKey();
+            }
+        }
+        return null;
     }
 
     private Object normalizeValue(TaskFileSpec spec, String column, Object value) {
@@ -50,26 +83,30 @@ public class NormalizationService {
         }
         if (value instanceof String) {
             String text = (String) value;
-            if (Boolean.TRUE.equals(spec.normalization.trimString)) {
+            if (Boolean.TRUE.equals(spec.normalize.trimString)) {
                 text = text.trim();
             }
-            if (Boolean.TRUE.equals(spec.normalization.emptyAsNull) && text.isEmpty()) {
+            if (Boolean.TRUE.equals(spec.normalize.emptyAsNull) && text.isEmpty()) {
                 return null;
             }
-            if (spec.normalization.caseInsensitiveColumns.contains(column)) {
+            if (spec.normalize.caseInsensitiveColumns.contains(column)) {
                 text = text.toLowerCase(Locale.ROOT);
             }
             return text;
         }
         if (value instanceof BigDecimal) {
-            Integer scale = spec.normalization.decimalScale.get(column);
+            Integer scale = spec.normalize.decimalScale.get(column);
             if (scale != null) {
                 return ((BigDecimal) value).setScale(scale, RoundingMode.HALF_UP);
             }
             return value;
         }
+        if (value instanceof Number && spec.normalize.decimalScale.containsKey(column)) {
+            Integer scale = spec.normalize.decimalScale.get(column);
+            return new BigDecimal(String.valueOf(value)).setScale(scale, RoundingMode.HALF_UP);
+        }
         if (value instanceof Timestamp) {
-            ZoneId zoneId = ZoneId.of(spec.normalization.timezone == null ? "UTC" : spec.normalization.timezone);
+            ZoneId zoneId = ZoneId.of(spec.normalize.timezone == null ? "UTC" : spec.normalize.timezone);
             Instant instant = ((Timestamp) value).toInstant();
             return DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(instant.atZone(zoneId));
         }
@@ -80,4 +117,3 @@ public class NormalizationService {
         return value == null ? "<null>" : String.valueOf(value);
     }
 }
-

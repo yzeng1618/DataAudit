@@ -24,8 +24,8 @@ public class AuditService {
     }
 
     public void applyResumeHint(ReportModel report) {
-        if (report.result.suspectSegments != null && !report.result.suspectSegments.isEmpty()) {
-            report.result.resumeHint = "data-audit diff -f task.yaml --segment " + report.result.suspectSegments.get(0).segmentKey;
+        if (report.result.suspectSlices != null && !report.result.suspectSlices.isEmpty()) {
+            report.result.resumeHint = "data-audit diff -f task.yaml --slice " + report.result.suspectSlices.get(0).sliceKey;
         }
     }
 

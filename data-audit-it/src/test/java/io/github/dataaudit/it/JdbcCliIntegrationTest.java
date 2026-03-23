@@ -37,7 +37,6 @@ class JdbcCliIntegrationTest {
         Path tempDir = Files.createTempDirectory("recon-it");
         Path taskFile = tempDir.resolve("task.yaml");
         Path reportsDir = tempDir.resolve("reports");
-        Path stateFile = tempDir.resolve("state.db");
         String yaml = ""
                 + "task:\n"
                 + "  name: jdbc_it\n"
@@ -62,16 +61,14 @@ class JdbcCliIntegrationTest {
                 + "object:\n"
                 + "  key:\n"
                 + "    - order_id\n"
-                + "planner:\n"
-                + "  mode: auto\n"
-                + "  hints:\n"
-                + "    estimated_rows: 2\n"
-                + "    max_exact_rows: 100\n"
+                + "  columns:\n"
+                + "    - order_id\n"
+                + "    - status\n"
+                + "    - amount\n"
+                + "    - dt\n"
+                + "  estimated_rows: 2\n"
                 + "output:\n"
-                + "  dir: " + reportsDir.toString().replace("\\", "/") + "\n"
-                + "state:\n"
-                + "  backend: sqlite\n"
-                + "  path: " + stateFile.toString().replace("\\", "/") + "\n";
+                + "  dir: " + reportsDir.toString().replace("\\", "/") + "\n";
         Files.write(taskFile, yaml.getBytes(StandardCharsets.UTF_8));
 
         int planExit = new CommandLine(new DataAuditMain()).execute("plan", "-f", taskFile.toString());

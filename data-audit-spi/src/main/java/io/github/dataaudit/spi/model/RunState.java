@@ -14,14 +14,11 @@ public class RunState {
     public OffsetDateTime finishedAt;
     public String reportJsonPath;
     public String reportHtmlPath;
-    public List<SegmentState> segments = new ArrayList<>();
+    public List<SliceState> slices = new ArrayList<>();
 
-    public static class SegmentState {
-        public String segmentKey;
+    public static class SliceState {
+        public String sliceKey;
         public String status;
         public String resumeToken;
-        public String sourceDigest;
-        public String targetDigest;
     }
 }
-

@@ -5,10 +5,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import io.github.dataaudit.core.AuditService;
 import io.github.dataaudit.core.BoundaryResolver;
 import io.github.dataaudit.core.ConnectorRegistry;
+import io.github.dataaudit.core.DdlAuditor;
 import io.github.dataaudit.core.DiffEngine;
+import io.github.dataaudit.core.DmlAuditor;
 import io.github.dataaudit.core.ExecutionService;
 import io.github.dataaudit.core.HashProvider;
 import io.github.dataaudit.core.NormalizationService;
@@ -87,19 +88,19 @@ public class DataAuditMain implements Runnable {
         }
     }
 
-    @Command(name = "diff", description = "Run exact diff on a specified segment.")
+    @Command(name = "diff", description = "Run exact diff on a specified slice.")
     static class DiffCommand implements Callable<Integer> {
         @Option(names = {"-f", "--file"}, required = true, description = "task yaml path")
         private Path taskFile;
 
-        @Option(names = {"--segment"}, required = true, description = "segment key, for example dt=2026-03-10")
-        private String segment;
+        @Option(names = {"--slice"}, required = true, description = "slice key, for example dt=2026-03-10")
+        private String slice;
 
         @Override
         public Integer call() throws Exception {
             TaskFileSpec spec = loadSpec(taskFile);
             ExecutionService service = newExecutionService(spec);
-            ReportModel report = service.diff(spec, segment);
+            ReportModel report = service.diff(spec, slice);
             printSummary(report);
             return exitCode(report.result.status);
         }
@@ -129,9 +130,10 @@ public class DataAuditMain implements Runnable {
     private static ExecutionService newExecutionService(TaskFileSpec spec) {
         NormalizationService normalizationService = new NormalizationService();
         SummaryEngine summaryEngine = new SummaryEngine(normalizationService, new HashProvider());
+        Path statePath = Paths.get(spec.output.dir).resolve("state.db");
         return new ExecutionService(
                 ConnectorRegistry.load(),
-                new SqliteStateStore(Paths.get(spec.state.path)),
+                new SqliteStateStore(statePath),
                 new JsonHtmlReportWriter(),
                 new SpecValidator(),
                 new BoundaryResolver(),
@@ -140,7 +142,8 @@ public class DataAuditMain implements Runnable {
                 summaryEngine,
                 new SegmentEngine(summaryEngine),
                 new DiffEngine(normalizationService),
-                new AuditService()
+                new DmlAuditor(),
+                new DdlAuditor()
         );
     }
 
@@ -157,7 +160,7 @@ public class DataAuditMain implements Runnable {
                 .registerModule(new JavaTimeModule())
                 .setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE)
                 .configure(SerializationFeature.INDENT_OUTPUT, true)
-                .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+                .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true);
     }
 
     private static void printSummary(ReportModel report) throws Exception {
@@ -165,9 +168,16 @@ public class DataAuditMain implements Runnable {
         System.out.println("status=" + report.result.status);
         System.out.println("objectClass=" + report.plan.objectClass);
         System.out.println("selectedPath=" + report.plan.selectedPath);
+        System.out.println("signalBackend=" + report.plan.signalBackend);
+        System.out.println("consistencyLevel=" + report.result.consistencyLevel);
+        System.out.println("verdictBasis=" + report.result.verdictBasis);
         System.out.println("rootCause=" + report.result.rootCause);
-        System.out.println("suspectSegments=" + objectMapper().writeValueAsString(report.result.suspectSegments));
+        System.out.println("suspectSlices=" + objectMapper().writeValueAsString(report.result.suspectSlices));
         System.out.println("resumeHint=" + report.result.resumeHint);
+        System.out.println("planDecisionTrace=" + objectMapper().writeValueAsString(report.plan.decisionTrace));
+        System.out.println("resultDecisionTrace=" + objectMapper().writeValueAsString(report.result.decisionTrace));
+        System.out.println("dmlVerdict=" + report.result.dmlAudit.verdict);
+        System.out.println("ddlVerdict=" + report.result.ddlAudit.verdict);
     }
 
     private static int exitCode(String status) {
@@ -176,6 +186,9 @@ public class DataAuditMain implements Runnable {
         }
         if ("DIFF_FOUND".equalsIgnoreCase(status)) {
             return 1;
+        }
+        if ("INCONCLUSIVE".equalsIgnoreCase(status)) {
+            return 3;
         }
         if ("PARTIAL".equalsIgnoreCase(status)) {
             return 4;

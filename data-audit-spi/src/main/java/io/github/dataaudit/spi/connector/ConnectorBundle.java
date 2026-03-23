@@ -4,25 +4,33 @@ import io.github.dataaudit.spi.model.CapabilityDescriptor;
 
 public class ConnectorBundle implements AutoCloseable {
     private final CapabilityDescriptor capabilityDescriptor;
-    private final DataReader dataReader;
+    private final SchemaReader schemaReader;
+    private final SignalReader signalReader;
+    private final RowStreamReader rowStreamReader;
     private final MetadataReader metadataReader;
     private final EvidenceReader evidenceReader;
     private final AutoCloseable closeable;
 
     public ConnectorBundle(CapabilityDescriptor capabilityDescriptor,
-                           DataReader dataReader,
+                           SchemaReader schemaReader,
+                           SignalReader signalReader,
+                           RowStreamReader rowStreamReader,
                            MetadataReader metadataReader,
                            EvidenceReader evidenceReader) {
-        this(capabilityDescriptor, dataReader, metadataReader, evidenceReader, null);
+        this(capabilityDescriptor, schemaReader, signalReader, rowStreamReader, metadataReader, evidenceReader, null);
     }
 
     public ConnectorBundle(CapabilityDescriptor capabilityDescriptor,
-                           DataReader dataReader,
+                           SchemaReader schemaReader,
+                           SignalReader signalReader,
+                           RowStreamReader rowStreamReader,
                            MetadataReader metadataReader,
                            EvidenceReader evidenceReader,
                            AutoCloseable closeable) {
         this.capabilityDescriptor = capabilityDescriptor;
-        this.dataReader = dataReader;
+        this.schemaReader = schemaReader;
+        this.signalReader = signalReader;
+        this.rowStreamReader = rowStreamReader;
         this.metadataReader = metadataReader;
         this.evidenceReader = evidenceReader;
         this.closeable = closeable;
@@ -32,8 +40,16 @@ public class ConnectorBundle implements AutoCloseable {
         return capabilityDescriptor;
     }
 
-    public DataReader getDataReader() {
-        return dataReader;
+    public SchemaReader getSchemaReader() {
+        return schemaReader;
+    }
+
+    public SignalReader getSignalReader() {
+        return signalReader;
+    }
+
+    public RowStreamReader getRowStreamReader() {
+        return rowStreamReader;
     }
 
     public MetadataReader getMetadataReader() {

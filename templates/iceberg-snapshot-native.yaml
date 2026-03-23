@@ -1,0 +1,36 @@
+task:
+  name: iceberg_snapshot_native
+boundary:
+  type: snapshot
+  reference: latest
+source:
+  type: iceberg
+  catalog: prod
+  catalog_type: hadoop
+  warehouse: /warehouse
+  namespace: dw
+  table: orders
+target:
+  type: jdbc
+  url: jdbc:postgresql://target:5432/app
+  username: app
+  password: target_password
+  table: public.orders
+  options:
+    dialect: postgres
+object:
+  key:
+    - order_id
+  columns:
+    - order_id
+    - status
+    - amount
+    - dt
+  partition_by:
+    - dt
+  estimated_rows: 5000000
+normalize:
+  decimal_scale:
+    amount: 2
+output:
+  dir: ./reports/iceberg_snapshot_native

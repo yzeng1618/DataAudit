@@ -9,7 +9,7 @@ boundary:
 
 source:
   type: jdbc
-  url: jdbc:postgresql://postgres-source.prod:5432/app
+  url: jdbc:postgresql://postgres-source.prod:5432/app?connectTimeout=5000&socketTimeout=300000&tcpKeepAlive=true
   username: app_read
   password: ${SRC_PASSWORD}
   query: |
@@ -18,6 +18,9 @@ source:
     where dt = '2026-03-10'
   options:
     dialect: postgres
+    query_timeout_seconds: 300
+    fetch_size: 2000
+    progress_log_interval_rows: 5000
 
 target:
   type: iceberg

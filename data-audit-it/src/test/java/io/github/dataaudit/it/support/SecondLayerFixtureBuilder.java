@@ -1,26 +1,18 @@
 package io.github.dataaudit.it.support;
 
-import org.apache.hadoop.conf.Configuration;
-import org.apache.iceberg.DataFile;
-import org.apache.iceberg.DataFiles;
-import org.apache.iceberg.FileFormat;
-import org.apache.iceberg.PartitionSpec;
-import org.apache.iceberg.Schema;
-import org.apache.iceberg.Table;
-import org.apache.iceberg.hadoop.HadoopTables;
-import org.apache.iceberg.types.Types;
-
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
-import java.util.Comparator;
 
 public final class SecondLayerFixtureBuilder {
     private SecondLayerFixtureBuilder() {
+    }
+
+    static {
+        loadSqliteDriver();
     }
 
     public static void main(String[] args) throws Exception {
@@ -33,6 +25,12 @@ public final class SecondLayerFixtureBuilder {
         Path targetPath = Paths.get(args[2]);
 
         if ("postgres_simulated_jdbc".equalsIgnoreCase(scenario)) {
+            resetSqlite(sourcePath, true);
+            resetSqlite(targetPath, true);
+            seedConsistentSmall(sourcePath, targetPath);
+            return;
+        }
+        if ("mysql_simulated_jdbc".equalsIgnoreCase(scenario)) {
             resetSqlite(sourcePath, true);
             resetSqlite(targetPath, true);
             seedConsistentSmall(sourcePath, targetPath);
@@ -53,7 +51,25 @@ public final class SecondLayerFixtureBuilder {
         if ("iceberg_metadata_first".equalsIgnoreCase(scenario)) {
             resetSqlite(sourcePath, true);
             seedIcebergSource(sourcePath);
-            resetIcebergTable(targetPath);
+            resetIcebergConsistentTable(targetPath);
+            return;
+        }
+        if ("jdbc_to_iceberg_consistent".equalsIgnoreCase(scenario)) {
+            resetSqlite(sourcePath, true);
+            seedIcebergSource(sourcePath);
+            resetIcebergConsistentTable(targetPath);
+            return;
+        }
+        if ("jdbc_to_iceberg_diff".equalsIgnoreCase(scenario)) {
+            resetSqlite(sourcePath, true);
+            seedIcebergSource(sourcePath);
+            resetIcebergValueDiffTable(targetPath);
+            return;
+        }
+        if ("iceberg_to_jdbc_partitioned".equalsIgnoreCase(scenario)) {
+            resetIcebergPartitionedTable(sourcePath);
+            resetSqlite(targetPath, true);
+            seedPartitionMismatchTarget(targetPath);
             return;
         }
         throw new IllegalArgumentException("Unsupported scenario: " + scenario);
@@ -104,28 +120,32 @@ public final class SecondLayerFixtureBuilder {
         insert(sourceDb, 2, "new", "20.00", "2026-03-10");
     }
 
-    private static void resetIcebergTable(Path tableLocation) throws Exception {
-        deleteRecursively(tableLocation);
-        Files.createDirectories(tableLocation);
+    private static void seedPartitionMismatchTarget(Path targetDb) throws Exception {
+        insert(targetDb, 1, "paid", "10.00", "2026-03-10");
+        insert(targetDb, 2, "new", "99.99", "2026-03-10");
+        insert(targetDb, 3, "paid", "30.00", "2026-03-11");
+    }
 
-        Schema schema = new Schema(
-                Types.NestedField.required(1, "order_id", Types.LongType.get()),
-                Types.NestedField.optional(2, "status", Types.StringType.get()),
-                Types.NestedField.optional(3, "dt", Types.StringType.get())
-        );
-        PartitionSpec spec = PartitionSpec.unpartitioned();
-        HadoopTables tables = new HadoopTables(new Configuration());
-        Table table = tables.create(schema, spec, tableLocation.toString());
+    private static void resetIcebergConsistentTable(Path tableLocation) throws Exception {
+        IcebergFixtureSupport.resetOrdersTable(tableLocation, java.util.Arrays.asList(
+                IcebergFixtureSupport.order(1, "paid", "10.00", "2026-03-10"),
+                IcebergFixtureSupport.order(2, "new", "20.00", "2026-03-10")
+        ));
+    }
 
-        Path dataFilePath = tableLocation.resolve("data-file.parquet");
-        Files.write(dataFilePath, new byte[]{0});
-        DataFile dataFile = DataFiles.builder(spec)
-                .withPath(dataFilePath.toString().replace("\\", "/"))
-                .withFormat(FileFormat.PARQUET)
-                .withFileSizeInBytes(1)
-                .withRecordCount(2)
-                .build();
-        table.newAppend().appendFile(dataFile).commit();
+    private static void resetIcebergValueDiffTable(Path tableLocation) throws Exception {
+        IcebergFixtureSupport.resetOrdersTable(tableLocation, java.util.Arrays.asList(
+                IcebergFixtureSupport.order(1, "paid", "10.00", "2026-03-10"),
+                IcebergFixtureSupport.order(2, "new", "99.99", "2026-03-10")
+        ));
+    }
+
+    private static void resetIcebergPartitionedTable(Path tableLocation) throws Exception {
+        IcebergFixtureSupport.resetOrdersTable(tableLocation, java.util.Arrays.asList(
+                IcebergFixtureSupport.order(1, "paid", "10.00", "2026-03-10"),
+                IcebergFixtureSupport.order(2, "new", "20.00", "2026-03-10"),
+                IcebergFixtureSupport.order(3, "paid", "30.00", "2026-03-11")
+        ));
     }
 
     private static void insert(Path dbPath, int orderId, String status, String amount, String dt) throws Exception {
@@ -139,18 +159,11 @@ public final class SecondLayerFixtureBuilder {
         }
     }
 
-    private static void deleteRecursively(Path root) throws IOException {
-        if (!Files.exists(root)) {
-            return;
+    private static void loadSqliteDriver() {
+        try {
+            Class.forName("org.sqlite.JDBC");
+        } catch (ClassNotFoundException e) {
+            throw new IllegalStateException("SQLite JDBC driver is not available on the test classpath", e);
         }
-        Files.walk(root)
-                .sorted(Comparator.reverseOrder())
-                .forEach(path -> {
-                    try {
-                        Files.deleteIfExists(path);
-                    } catch (IOException exception) {
-                        throw new RuntimeException(exception);
-                    }
-                });
     }
 }

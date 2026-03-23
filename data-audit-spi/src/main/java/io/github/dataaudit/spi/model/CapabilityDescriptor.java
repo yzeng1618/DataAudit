@@ -9,7 +9,11 @@ public class CapabilityDescriptor {
     public boolean supportsPartitionPrune;
     public boolean supportsColumnProjection;
     public boolean supportsMetadataStats;
+    public boolean supportsSignalPushdown;
+    public boolean supportsGroupedSignalPushdown;
+    public boolean supportsNativeMetadata;
     public boolean supportsKeyedDiff = true;
     public boolean supportsKeylessMultiset = true;
+    public String sourceLoadPolicy = "balanced";
     public Map<String, String> attributes = new LinkedHashMap<String, String>();
 }

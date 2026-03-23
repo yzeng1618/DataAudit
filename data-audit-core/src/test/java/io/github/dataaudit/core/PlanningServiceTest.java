@@ -16,8 +16,7 @@ class PlanningServiceTest {
         spec.boundary.type = "job_finish";
         spec.source.type = "jdbc";
         spec.target.type = "jdbc";
-        spec.planner.hints.estimatedRows = 100L;
-        spec.planner.hints.maxExactRows = 1_000L;
+        spec.object.estimatedRows = 100L;
 
         CapabilityDescriptor source = new CapabilityDescriptor();
         CapabilityDescriptor target = new CapabilityDescriptor();
@@ -51,20 +50,24 @@ class PlanningServiceTest {
 
         ExecutionPlan plan = new PlanningService().plan(spec, source, target, boundary);
         assertEquals("lakehouse_object", plan.objectClass);
-        assertEquals("boundary metadata -> schema -> summary -> segment -> diff", plan.selectedPath);
+        assertEquals("boundary metadata -> schema -> signal -> localization -> drilldown", plan.selectedPath);
     }
 
     @Test
-    void shouldRespectSegmentFirstMode() {
+    void shouldPickTrinoGroupedSignalForLargeSqlObject() {
         TaskFileSpec spec = new TaskFileSpec();
         spec.task.name = "demo";
         spec.boundary.type = "job_finish";
-        spec.source.type = "jdbc";
-        spec.target.type = "jdbc";
-        spec.planner.mode = "segment_first";
-        spec.planner.hints.estimatedRows = 100L;
-        spec.planner.hints.maxExactRows = 1_000L;
-        spec.planner.hints.partitionKeys.add("dt");
+        spec.queryConnector = new TaskFileSpec.QueryConnectorSpec();
+        spec.queryConnector.type = "trino";
+        spec.queryConnector.uri = "jdbc:trino://localhost:8080";
+        spec.queryConnector.user = "test";
+        spec.source.type = "sql";
+        spec.source.table = "orders_src";
+        spec.target.type = "sql";
+        spec.target.table = "orders_tgt";
+        spec.object.estimatedRows = 1_000_000L;
+        spec.object.partitionBy.add("dt");
 
         CapabilityDescriptor source = new CapabilityDescriptor();
         CapabilityDescriptor target = new CapabilityDescriptor();
@@ -75,18 +78,20 @@ class PlanningServiceTest {
 
         ExecutionPlan plan = new PlanningService().plan(spec, source, target, boundary);
         assertEquals("partitioned_big_table", plan.objectClass);
-        assertEquals("schema -> summary -> segment -> diff", plan.selectedPath);
+        assertEquals("gate -> signal -> localization -> drilldown", plan.selectedPath);
+        assertEquals("trino_grouped_signal", plan.signalBackend);
+        assertEquals("natural_slice", plan.localizationStrategy);
     }
 
     @Test
-    void shouldRespectExactFirstMode() {
+    void shouldUseVirtualBucketForLargeJdbcWithoutNaturalSlice() {
         TaskFileSpec spec = new TaskFileSpec();
         spec.task.name = "demo";
         spec.boundary.type = "job_finish";
         spec.source.type = "jdbc";
         spec.target.type = "jdbc";
-        spec.planner.mode = "exact_first";
-        spec.planner.hints.estimatedRows = 5_000_000L;
+        spec.object.estimatedRows = 5_000_000L;
+        spec.object.key.add("order_id");
 
         CapabilityDescriptor source = new CapabilityDescriptor();
         CapabilityDescriptor target = new CapabilityDescriptor();
@@ -96,7 +101,38 @@ class PlanningServiceTest {
         boundary.stable = true;
 
         ExecutionPlan plan = new PlanningService().plan(spec, source, target, boundary);
-        assertEquals("small_table_once", plan.objectClass);
-        assertEquals("schema -> exact diff", plan.selectedPath);
+        assertEquals("partitioned_big_table", plan.objectClass);
+        assertEquals("gate -> signal -> localization -> drilldown", plan.selectedPath);
+        assertEquals("virtual_bucket", plan.localizationStrategy);
+    }
+
+    @Test
+    void shouldTreatTrinoAliasAsTrinoQueryPlane() {
+        TaskFileSpec spec = new TaskFileSpec();
+        spec.task.name = "demo";
+        spec.boundary.type = "job_finish";
+        spec.queryConnector = new TaskFileSpec.QueryConnectorSpec();
+        spec.queryConnector.type = "trino";
+        spec.queryConnector.uri = "jdbc:trino://localhost:8080";
+        spec.queryConnector.user = "test";
+        spec.source.type = "trino";
+        spec.source.table = "orders_src";
+        spec.target.type = "trino";
+        spec.target.table = "orders_tgt";
+        spec.object.estimatedRows = 1_000_000L;
+        spec.object.partitionBy.add("dt");
+
+        CapabilityDescriptor source = new CapabilityDescriptor();
+        CapabilityDescriptor target = new CapabilityDescriptor();
+        BoundaryRef boundary = new BoundaryRef();
+        boundary.type = "job_finish";
+        boundary.reference = "latest";
+        boundary.stable = true;
+
+        ExecutionPlan plan = new PlanningService().plan(spec, source, target, boundary);
+        assertEquals("partitioned_big_table", plan.objectClass);
+        assertEquals("gate -> signal -> localization -> drilldown", plan.selectedPath);
+        assertEquals("trino_grouped_signal", plan.signalBackend);
+        assertEquals("natural_slice", plan.localizationStrategy);
     }
 }

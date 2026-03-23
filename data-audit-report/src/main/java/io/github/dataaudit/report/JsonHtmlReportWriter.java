@@ -9,7 +9,7 @@ import freemarker.template.Template;
 import freemarker.template.TemplateExceptionHandler;
 import io.github.dataaudit.spi.model.DiffResult;
 import io.github.dataaudit.spi.model.ReportModel;
-import io.github.dataaudit.spi.model.SegmentDescriptor;
+import io.github.dataaudit.spi.model.SliceDescriptor;
 import io.github.dataaudit.spi.report.ReportWriter;
 
 import java.io.BufferedWriter;
@@ -40,7 +40,7 @@ public class JsonHtmlReportWriter implements ReportWriter {
         Files.createDirectories(outputDir);
         Path jsonPath = outputDir.resolve("report.json");
         Path htmlPath = outputDir.resolve("report.html");
-        Path suspectPath = outputDir.resolve("suspect_segments.csv");
+        Path suspectPath = outputDir.resolve("suspect_slices.csv");
         Path samplePath = outputDir.resolve("row_diff_sample.csv");
         Path manifestPath = outputDir.resolve("manifest.json");
 
@@ -63,11 +63,11 @@ public class JsonHtmlReportWriter implements ReportWriter {
 
     private void writeSegmentsCsv(ReportModel report, Path path) throws Exception {
         try (BufferedWriter writer = Files.newBufferedWriter(path, StandardCharsets.UTF_8)) {
-            writer.write("segment_key,segment_column,segment_value,reason,source_digest,target_digest");
+            writer.write("slice_key,slice_type,row_estimate,drilldownable,reason");
             writer.newLine();
-            for (SegmentDescriptor segment : report.result.suspectSegments) {
-                writer.write(csv(segment.segmentKey) + "," + csv(segment.segmentColumn) + "," + csv(segment.segmentValue) + ","
-                        + csv(segment.reason) + "," + csv(segment.sourceDigest) + "," + csv(segment.targetDigest));
+            for (SliceDescriptor slice : report.result.suspectSlices) {
+                writer.write(csv(slice.sliceKey) + "," + csv(slice.sliceType) + "," + csv(slice.rowEstimate == null ? null : String.valueOf(slice.rowEstimate)) + ","
+                        + csv(String.valueOf(slice.drilldownable)) + "," + csv(slice.reason));
                 writer.newLine();
             }
         }
@@ -75,10 +75,10 @@ public class JsonHtmlReportWriter implements ReportWriter {
 
     private void writeSamplesCsv(ReportModel report, Path path) throws Exception {
         try (BufferedWriter writer = Files.newBufferedWriter(path, StandardCharsets.UTF_8)) {
-            writer.write("type,key,source_value,target_value,segment_key");
+            writer.write("type,key,source_value,target_value,slice_key");
             writer.newLine();
             for (DiffResult.DiffSample sample : report.result.diff.samples) {
-                writer.write(csv(sample.type) + "," + csv(sample.key) + "," + csv(sample.sourceValue) + "," + csv(sample.targetValue) + "," + csv(sample.segmentKey));
+                writer.write(csv(sample.type) + "," + csv(sample.key) + "," + csv(sample.sourceValue) + "," + csv(sample.targetValue) + "," + csv(sample.sliceKey));
                 writer.newLine();
             }
         }

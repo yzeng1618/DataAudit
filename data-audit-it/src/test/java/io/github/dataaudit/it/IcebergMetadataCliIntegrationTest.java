@@ -3,15 +3,7 @@ package io.github.dataaudit.it;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.dataaudit.cli.DataAuditMain;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.iceberg.DataFile;
-import org.apache.iceberg.DataFiles;
-import org.apache.iceberg.FileFormat;
-import org.apache.iceberg.PartitionSpec;
-import org.apache.iceberg.Schema;
-import org.apache.iceberg.Table;
-import org.apache.iceberg.hadoop.HadoopTables;
-import org.apache.iceberg.types.Types;
+import io.github.dataaudit.it.support.IcebergFixtureSupport;
 import org.junit.jupiter.api.Test;
 import picocli.CommandLine;
 
@@ -21,6 +13,7 @@ import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
+import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -28,21 +21,66 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class IcebergMetadataCliIntegrationTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    static {
+        loadSqliteDriver();
+    }
+
     @Test
-    void shouldPlanMetadataFirstAndReturnPartialCheckForIcebergTarget() throws Exception {
-        Path tempDir = Files.createTempDirectory("recon-iceberg-it");
+    void shouldUseNativeIcebergMetadataForSnapshotBoundary() throws Exception {
+        Path tempDir = Files.createTempDirectory("data-audit-iceberg-consistent");
         Path sourceDb = tempDir.resolve("source.db");
         createOrdersTable(sourceDb);
         insert(sourceDb, 1, "paid", "10.00", "2026-03-10");
-        insert(sourceDb, 2, "new", "20.00", "2026-03-10");
 
         Path tableLocation = tempDir.resolve("warehouse").resolve("orders");
-        createIcebergTable(tableLocation);
+        IcebergFixtureSupport.resetOrdersTable(tableLocation, Arrays.asList(
+                IcebergFixtureSupport.order(1, "paid", "10.00", "2026-03-10")
+        ));
 
         Path taskFile = tempDir.resolve("task.yaml");
         Path reportsDir = tempDir.resolve("reports");
-        Path stateFile = tempDir.resolve("state.db");
-        String yaml = ""
+        Files.writeString(taskFile, jdbcToIcebergYaml(sourceDb, tableLocation, reportsDir), StandardCharsets.UTF_8);
+
+        CommandLine cli = new CommandLine(new DataAuditMain());
+        assertEquals(0, cli.execute("plan", "-f", taskFile.toString()));
+        assertEquals(0, cli.execute("check", "-f", taskFile.toString()));
+
+        JsonNode report = objectMapper.readTree(reportsDir.resolve("report.json").toFile());
+        assertEquals("lakehouse_object", report.path("plan").path("object_class").asText());
+        assertEquals("boundary metadata -> schema -> signal -> localization -> drilldown", report.path("plan").path("selected_path").asText());
+        assertEquals("iceberg_native_metadata", report.path("plan").path("signal_backend").asText());
+        assertEquals("CONSISTENT", report.path("result").path("status").asText());
+        assertTrue(report.path("plan").path("decision_trace").isArray());
+    }
+
+    @Test
+    void shouldDetectPartitionedDiffAcrossIcebergAndJdbc() throws Exception {
+        Path tempDir = Files.createTempDirectory("data-audit-iceberg-diff");
+        Path targetDb = tempDir.resolve("target.db");
+        createOrdersTable(targetDb);
+        insert(targetDb, 1, "paid", "99.99", "2026-03-10");
+        insert(targetDb, 2, "paid", "30.00", "2026-03-11");
+
+        Path tableLocation = tempDir.resolve("warehouse").resolve("orders");
+        IcebergFixtureSupport.resetOrdersTable(tableLocation, Arrays.asList(
+                IcebergFixtureSupport.order(1, "paid", "10.00", "2026-03-10"),
+                IcebergFixtureSupport.order(2, "paid", "30.00", "2026-03-11")
+        ));
+
+        Path taskFile = tempDir.resolve("task.yaml");
+        Path reportsDir = tempDir.resolve("reports");
+        Files.writeString(taskFile, icebergToJdbcYaml(tableLocation, targetDb, reportsDir), StandardCharsets.UTF_8);
+
+        int checkExit = new CommandLine(new DataAuditMain()).execute("check", "-f", taskFile.toString());
+        assertEquals(1, checkExit);
+
+        JsonNode report = objectMapper.readTree(reportsDir.resolve("report.json").toFile());
+        assertEquals("DIFF_FOUND", report.path("result").path("status").asText());
+        assertEquals("dt=2026-03-10", report.path("result").path("suspect_slices").get(0).path("slice_key").asText());
+    }
+
+    private String jdbcToIcebergYaml(Path sourceDb, Path tableLocation, Path reportsDir) {
+        return ""
                 + "task:\n"
                 + "  name: iceberg_metadata_it\n"
                 + "boundary:\n"
@@ -58,31 +96,55 @@ class IcebergMetadataCliIntegrationTest {
                 + "  type: iceberg\n"
                 + "  location: " + tableLocation.toString().replace("\\", "/") + "\n"
                 + "  table: orders\n"
-                + "planner:\n"
-                + "  mode: metadata_first\n"
-                + "  hints:\n"
-                + "    object_class: lakehouse_object\n"
-                + "    prefer_metadata: true\n"
+                + "object:\n"
+                + "  key:\n"
+                + "    - order_id\n"
+                + "  columns:\n"
+                + "    - order_id\n"
+                + "    - status\n"
+                + "    - amount\n"
+                + "    - dt\n"
+                + "  estimated_rows: 1\n"
+                + "normalize:\n"
+                + "  decimal_scale:\n"
+                + "    amount: 2\n"
                 + "output:\n"
-                + "  dir: " + reportsDir.toString().replace("\\", "/") + "\n"
-                + "state:\n"
-                + "  backend: sqlite\n"
-                + "  path: " + stateFile.toString().replace("\\", "/") + "\n";
-        Files.write(taskFile, yaml.getBytes(StandardCharsets.UTF_8));
+                + "  dir: " + reportsDir.toString().replace("\\", "/") + "\n";
+    }
 
-        CommandLine cli = new CommandLine(new DataAuditMain());
-        int planExit = cli.execute("plan", "-f", taskFile.toString());
-        int checkExit = cli.execute("check", "-f", taskFile.toString());
-
-        assertEquals(0, planExit);
-        assertEquals(4, checkExit);
-
-        JsonNode report = objectMapper.readTree(reportsDir.resolve("report.json").toFile());
-        assertEquals("lakehouse_object", report.path("plan").path("object_class").asText());
-        assertEquals("boundary metadata -> schema -> summary -> segment -> diff", report.path("plan").path("selected_path").asText());
-        assertEquals("PARTIAL", report.path("result").path("status").asText());
-        assertEquals("data_reader_unavailable", report.path("result").path("root_cause").asText());
-        assertTrue(report.path("result").path("suspect_segments").isArray());
+    private String icebergToJdbcYaml(Path tableLocation, Path targetDb, Path reportsDir) {
+        return ""
+                + "task:\n"
+                + "  name: iceberg_to_jdbc_it\n"
+                + "boundary:\n"
+                + "  type: snapshot\n"
+                + "  reference: latest\n"
+                + "source:\n"
+                + "  type: iceberg\n"
+                + "  location: " + tableLocation.toString().replace("\\", "/") + "\n"
+                + "  table: orders\n"
+                + "target:\n"
+                + "  type: jdbc\n"
+                + "  url: jdbc:sqlite:" + targetDb.toString().replace("\\", "/") + "\n"
+                + "  table: orders\n"
+                + "  options:\n"
+                + "    dialect: postgres\n"
+                + "object:\n"
+                + "  key:\n"
+                + "    - order_id\n"
+                + "  columns:\n"
+                + "    - order_id\n"
+                + "    - status\n"
+                + "    - amount\n"
+                + "    - dt\n"
+                + "  partition_by:\n"
+                + "    - dt\n"
+                + "  estimated_rows: 1000000\n"
+                + "normalize:\n"
+                + "  decimal_scale:\n"
+                + "    amount: 2\n"
+                + "output:\n"
+                + "  dir: " + reportsDir.toString().replace("\\", "/") + "\n";
     }
 
     private void createOrdersTable(Path dbPath) throws Exception {
@@ -99,25 +161,11 @@ class IcebergMetadataCliIntegrationTest {
         }
     }
 
-    private void createIcebergTable(Path tableLocation) throws Exception {
-        Files.createDirectories(tableLocation);
-        Schema schema = new Schema(
-                Types.NestedField.required(1, "order_id", Types.LongType.get()),
-                Types.NestedField.optional(2, "status", Types.StringType.get()),
-                Types.NestedField.optional(3, "dt", Types.StringType.get())
-        );
-        PartitionSpec spec = PartitionSpec.unpartitioned();
-        HadoopTables tables = new HadoopTables(new Configuration());
-        Table table = tables.create(schema, spec, tableLocation.toString());
-
-        Path dataFilePath = tableLocation.resolve("data-file.parquet");
-        Files.write(dataFilePath, new byte[]{0});
-        DataFile dataFile = DataFiles.builder(spec)
-                .withPath(dataFilePath.toString().replace("\\", "/"))
-                .withFormat(FileFormat.PARQUET)
-                .withFileSizeInBytes(1)
-                .withRecordCount(2)
-                .build();
-        table.newAppend().appendFile(dataFile).commit();
+    private static void loadSqliteDriver() {
+        try {
+            Class.forName("org.sqlite.JDBC");
+        } catch (ClassNotFoundException e) {
+            throw new IllegalStateException("SQLite JDBC driver is not available on the test classpath", e);
+        }
     }
 }

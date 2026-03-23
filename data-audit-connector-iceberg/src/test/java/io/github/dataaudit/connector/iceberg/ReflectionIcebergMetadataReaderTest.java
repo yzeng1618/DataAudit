@@ -4,13 +4,16 @@ import io.github.dataaudit.spi.model.BoundaryRef;
 import io.github.dataaudit.spi.model.MetadataSnapshot;
 import io.github.dataaudit.spi.model.TaskFileSpec;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.iceberg.DataFile;
-import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.data.GenericAppenderFactory;
+import org.apache.iceberg.data.GenericRecord;
+import org.apache.iceberg.data.Record;
 import org.apache.iceberg.hadoop.HadoopTables;
+import org.apache.iceberg.io.DataWriter;
+import org.apache.iceberg.io.OutputFileFactory;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Test;
 
@@ -36,16 +39,18 @@ class ReflectionIcebergMetadataReaderTest {
         HadoopTables tables = new HadoopTables(new Configuration());
         Table table = tables.create(schema, spec, tableLocation.toString());
 
-        Path dataFilePath = tableLocation.resolve("data-file.parquet");
-        Files.createDirectories(tableLocation);
-        Files.write(dataFilePath, new byte[]{0});
-        DataFile dataFile = DataFiles.builder(spec)
-                .withPath(dataFilePath.toString().replace("\\", "/"))
-                .withFormat(FileFormat.PARQUET)
-                .withFileSizeInBytes(1)
-                .withRecordCount(1)
+        GenericAppenderFactory appenderFactory = new GenericAppenderFactory(schema, spec);
+        OutputFileFactory outputFileFactory = OutputFileFactory.builderFor(table, 1, 1L)
+                .format(FileFormat.PARQUET)
                 .build();
-        table.newAppend().appendFile(dataFile).commit();
+        try (DataWriter<Record> writer = appenderFactory.newDataWriter(outputFileFactory.newOutputFile(), FileFormat.PARQUET, null)) {
+            GenericRecord record = GenericRecord.create(schema);
+            record.setField("order_id", 1L);
+            record.setField("status", "paid");
+            writer.write(record);
+            writer.close();
+            table.newAppend().appendFile(writer.toDataFile()).commit();
+        }
 
         TaskFileSpec.EndpointSpec endpointSpec = new TaskFileSpec.EndpointSpec();
         endpointSpec.type = "iceberg";
@@ -65,6 +70,6 @@ class ReflectionIcebergMetadataReaderTest {
         assertEquals("iceberg", snapshot.attributes.get("connector"));
         assertNotNull(snapshot.attributes.get("snapshotId"));
         assertFalse(snapshot.schema.columns.isEmpty());
-        assertFalse(snapshot.segmentHints.isEmpty());
+        assertFalse(snapshot.sliceHints.isEmpty());
     }
 }

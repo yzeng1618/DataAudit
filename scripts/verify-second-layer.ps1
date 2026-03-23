@@ -25,7 +25,7 @@ function Test-DockerAvailable {
 
 Invoke-Step -Name "Hive/Doris JDBC adapter validation" -Command "mvn -q -pl data-audit-it -am test '-Dtest=SqliteDialectCliIntegrationTest' '-Dsurefire.failIfNoSpecifiedTests=false' '-DforkCount=0'"
 Invoke-Step -Name "Iceberg metadata reader unit validation" -Command "mvn -q -pl data-audit-connector-iceberg -am test '-Dtest=ReflectionIcebergMetadataReaderTest' '-Dsurefire.failIfNoSpecifiedTests=false' '-DforkCount=0'"
-Invoke-Step -Name "Iceberg metadata-first CLI validation" -Command "mvn -q -pl data-audit-it -am test '-Dtest=IcebergMetadataCliIntegrationTest' '-Dsurefire.failIfNoSpecifiedTests=false' '-DforkCount=0'"
+Invoke-Step -Name "Iceberg mixed JDBC CLI validation" -Command "mvn -q -pl data-audit-it -am test '-Dtest=IcebergMetadataCliIntegrationTest' '-Dsurefire.failIfNoSpecifiedTests=false' '-DforkCount=0'"
 
 if (Test-DockerAvailable) {
     Invoke-Step -Name "PostgreSQL real JDBC E2E" -Command "mvn -q -pl data-audit-it -am test '-Dtest=JdbcCliIntegrationTest' '-Dsurefire.failIfNoSpecifiedTests=false' '-DforkCount=0'"
