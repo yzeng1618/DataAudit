@@ -6,6 +6,7 @@ public class ConnectorBundle implements AutoCloseable {
     private final CapabilityDescriptor capabilityDescriptor;
     private final SchemaReader schemaReader;
     private final SignalReader signalReader;
+    private final RoutingSignalReader routingSignalReader;
     private final RowStreamReader rowStreamReader;
     private final MetadataReader metadataReader;
     private final EvidenceReader evidenceReader;
@@ -17,7 +18,17 @@ public class ConnectorBundle implements AutoCloseable {
                            RowStreamReader rowStreamReader,
                            MetadataReader metadataReader,
                            EvidenceReader evidenceReader) {
-        this(capabilityDescriptor, schemaReader, signalReader, rowStreamReader, metadataReader, evidenceReader, null);
+        this(capabilityDescriptor, schemaReader, signalReader, null, rowStreamReader, metadataReader, evidenceReader, null);
+    }
+
+    public ConnectorBundle(CapabilityDescriptor capabilityDescriptor,
+                           SchemaReader schemaReader,
+                           SignalReader signalReader,
+                           RoutingSignalReader routingSignalReader,
+                           RowStreamReader rowStreamReader,
+                           MetadataReader metadataReader,
+                           EvidenceReader evidenceReader) {
+        this(capabilityDescriptor, schemaReader, signalReader, routingSignalReader, rowStreamReader, metadataReader, evidenceReader, null);
     }
 
     public ConnectorBundle(CapabilityDescriptor capabilityDescriptor,
@@ -27,9 +38,21 @@ public class ConnectorBundle implements AutoCloseable {
                            MetadataReader metadataReader,
                            EvidenceReader evidenceReader,
                            AutoCloseable closeable) {
+        this(capabilityDescriptor, schemaReader, signalReader, null, rowStreamReader, metadataReader, evidenceReader, closeable);
+    }
+
+    public ConnectorBundle(CapabilityDescriptor capabilityDescriptor,
+                           SchemaReader schemaReader,
+                           SignalReader signalReader,
+                           RoutingSignalReader routingSignalReader,
+                           RowStreamReader rowStreamReader,
+                           MetadataReader metadataReader,
+                           EvidenceReader evidenceReader,
+                           AutoCloseable closeable) {
         this.capabilityDescriptor = capabilityDescriptor;
         this.schemaReader = schemaReader;
         this.signalReader = signalReader;
+        this.routingSignalReader = routingSignalReader;
         this.rowStreamReader = rowStreamReader;
         this.metadataReader = metadataReader;
         this.evidenceReader = evidenceReader;
@@ -46,6 +69,10 @@ public class ConnectorBundle implements AutoCloseable {
 
     public SignalReader getSignalReader() {
         return signalReader;
+    }
+
+    public RoutingSignalReader getRoutingSignalReader() {
+        return routingSignalReader;
     }
 
     public RowStreamReader getRowStreamReader() {

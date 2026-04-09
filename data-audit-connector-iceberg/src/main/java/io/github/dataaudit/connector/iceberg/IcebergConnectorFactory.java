@@ -27,6 +27,7 @@ public class IcebergConnectorFactory implements ConnectorFactory {
         capabilityDescriptor.supportsColumnProjection = true;
         capabilityDescriptor.supportsSignalPushdown = false;
         capabilityDescriptor.supportsGroupedSignalPushdown = false;
+        capabilityDescriptor.supportsRoutingSignalPushdown = true;
         capabilityDescriptor.supportsNativeMetadata = true;
         capabilityDescriptor.supportsKeyedDiff = true;
         capabilityDescriptor.supportsKeylessMultiset = true;
@@ -35,6 +36,7 @@ public class IcebergConnectorFactory implements ConnectorFactory {
         IcebergDataReader endpoint = new IcebergDataReader(spec, tableSupport);
         return new ConnectorBundle(
                 capabilityDescriptor,
+                endpoint,
                 endpoint,
                 endpoint,
                 endpoint,

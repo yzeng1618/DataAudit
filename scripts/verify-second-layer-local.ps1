@@ -177,11 +177,7 @@ function New-JdbcToIcebergTaskYaml {
         "",
         "semantics:",
         "  ddl:",
-        "    mode: compatible",
-        "    type_rules:",
-        "      - from: integer",
-        "        to: long",
-        "        action: allow",
+        "    rename_mapping: {}",
         "",
         "output:",
         "  dir: $ReportDir"
@@ -236,14 +232,6 @@ function New-IcebergToJdbcTaskYaml {
         "  decimal_scale:",
         "    amount: 2",
         "",
-        "semantics:",
-        "  ddl:",
-        "    mode: compatible",
-        "    type_rules:",
-        "      - from: long",
-        "        to: integer",
-        "        action: allow",
-        "",
         "output:",
         "  dir: $ReportDir"
     )
@@ -266,22 +254,43 @@ function Assert-ScenarioArtifacts {
     Assert-True -Condition (Test-Path $StatePath) -Message "state.db was not generated for $Scenario"
 }
 
+function Assert-LegacyFieldsRemoved {
+    param($Report, [string]$Scenario)
+
+    Assert-True -Condition ($null -eq $Report.plan.object_class) -Message "Legacy field plan.object_class should be absent for $Scenario"
+    Assert-True -Condition ($null -eq $Report.plan.selected_path) -Message "Legacy field plan.selected_path should be absent for $Scenario"
+    Assert-True -Condition ($null -eq $Report.plan.signal_backend) -Message "Legacy field plan.signal_backend should be absent for $Scenario"
+}
+
 function Assert-ScenarioReport {
     param(
         [string]$Scenario,
         [string]$ReportsDir,
         [string]$ExpectedStatus,
-        [string]$ExpectedObjectClass,
-        [string]$ExpectedSelectedPath,
-        [string]$ExpectedRootCause,
+        [string]$ExpectedScaleClass,
+        [string]$ExpectedSignalStrategy,
+        [string]$ExpectedLocalizationStrategy,
+        [string]$ExpectedProofMode,
+        [string]$ExpectedConfidence,
+        [string]$ExpectedRootCause = "",
         [string]$ExpectedFirstSuspectSlice = ""
     )
 
     $report = Get-Content (Join-Path $ReportsDir "report.json") -Raw -Encoding UTF8 | ConvertFrom-Json
+    Assert-LegacyFieldsRemoved -Report $report -Scenario $Scenario
     Assert-Equal -Actual $report.result.status -Expected $ExpectedStatus -Message "Unexpected report status for $Scenario"
-    Assert-Equal -Actual $report.plan.object_class -Expected $ExpectedObjectClass -Message "Unexpected object class for $Scenario"
-    Assert-Equal -Actual $report.plan.selected_path -Expected $ExpectedSelectedPath -Message "Unexpected selected path for $Scenario"
-    Assert-Equal -Actual $report.result.root_cause -Expected $ExpectedRootCause -Message "Unexpected root cause for $Scenario"
+    Assert-Equal -Actual $report.plan.scale_class -Expected $ExpectedScaleClass -Message "Unexpected scale class for $Scenario"
+    Assert-Equal -Actual $report.plan.signal_strategy -Expected $ExpectedSignalStrategy -Message "Unexpected signal strategy for $Scenario"
+    Assert-Equal -Actual $report.plan.localization_strategy -Expected $ExpectedLocalizationStrategy -Message "Unexpected localization strategy for $Scenario"
+    Assert-Equal -Actual $report.result.proof_mode -Expected $ExpectedProofMode -Message "Unexpected proof mode for $Scenario"
+    Assert-Equal -Actual $report.result.confidence -Expected $ExpectedConfidence -Message "Unexpected confidence for $Scenario"
+
+    $actualRootCause = [string]$report.result.root_cause
+    if ([string]::IsNullOrEmpty($ExpectedRootCause)) {
+        Assert-True -Condition ([string]::IsNullOrEmpty($actualRootCause)) -Message "Expected empty root cause for $Scenario"
+    } else {
+        Assert-Equal -Actual $actualRootCause -Expected $ExpectedRootCause -Message "Unexpected root cause for $Scenario"
+    }
     if ($ExpectedFirstSuspectSlice) {
         Assert-Equal -Actual $report.result.suspect_slices[0].slice_key -Expected $ExpectedFirstSuspectSlice -Message "Unexpected suspect slice for $Scenario"
     }
@@ -295,9 +304,12 @@ function Invoke-JdbcScenario {
         [string]$SegmentColumn,
         [int]$ExpectedCheckExitCode,
         [string]$ExpectedStatus,
-        [string]$ExpectedObjectClass,
-        [string]$ExpectedSelectedPath,
-        [string]$ExpectedRootCause,
+        [string]$ExpectedScaleClass,
+        [string]$ExpectedSignalStrategy,
+        [string]$ExpectedLocalizationStrategy,
+        [string]$ExpectedProofMode,
+        [string]$ExpectedConfidence,
+        [string]$ExpectedRootCause = "",
         [string]$ExpectedFirstSuspectSlice = ""
     )
 
@@ -323,7 +335,7 @@ function Invoke-JdbcScenario {
     Invoke-Native -FilePath "$env:JAVA_HOME\bin\java.exe" -Arguments @("-jar", $jarPath, "report", "show", (Join-Path $reportsDir "report.json")) -AllowedExitCodes @($ExpectedCheckExitCode)
 
     Assert-ScenarioArtifacts -Scenario $Scenario -ReportsDir $reportsDir -StatePath $statePath
-    Assert-ScenarioReport -Scenario $Scenario -ReportsDir $reportsDir -ExpectedStatus $ExpectedStatus -ExpectedObjectClass $ExpectedObjectClass -ExpectedSelectedPath $ExpectedSelectedPath -ExpectedRootCause $ExpectedRootCause -ExpectedFirstSuspectSlice $ExpectedFirstSuspectSlice
+    Assert-ScenarioReport -Scenario $Scenario -ReportsDir $reportsDir -ExpectedStatus $ExpectedStatus -ExpectedScaleClass $ExpectedScaleClass -ExpectedSignalStrategy $ExpectedSignalStrategy -ExpectedLocalizationStrategy $ExpectedLocalizationStrategy -ExpectedProofMode $ExpectedProofMode -ExpectedConfidence $ExpectedConfidence -ExpectedRootCause $ExpectedRootCause -ExpectedFirstSuspectSlice $ExpectedFirstSuspectSlice
 }
 
 function Invoke-JdbcToIcebergScenario {
@@ -331,9 +343,12 @@ function Invoke-JdbcToIcebergScenario {
         [string]$Scenario,
         [int]$ExpectedCheckExitCode,
         [string]$ExpectedStatus,
-        [string]$ExpectedObjectClass,
-        [string]$ExpectedSelectedPath,
-        [string]$ExpectedRootCause,
+        [string]$ExpectedScaleClass,
+        [string]$ExpectedSignalStrategy,
+        [string]$ExpectedLocalizationStrategy,
+        [string]$ExpectedProofMode,
+        [string]$ExpectedConfidence,
+        [string]$ExpectedRootCause = "",
         [string]$ExpectedFirstSuspectSlice = ""
     )
 
@@ -359,7 +374,7 @@ function Invoke-JdbcToIcebergScenario {
     Invoke-Native -FilePath "$env:JAVA_HOME\bin\java.exe" -Arguments @("-jar", $jarPath, "report", "show", (Join-Path $reportsDir "report.json")) -AllowedExitCodes @($ExpectedCheckExitCode)
 
     Assert-ScenarioArtifacts -Scenario $Scenario -ReportsDir $reportsDir -StatePath $statePath
-    Assert-ScenarioReport -Scenario $Scenario -ReportsDir $reportsDir -ExpectedStatus $ExpectedStatus -ExpectedObjectClass $ExpectedObjectClass -ExpectedSelectedPath $ExpectedSelectedPath -ExpectedRootCause $ExpectedRootCause -ExpectedFirstSuspectSlice $ExpectedFirstSuspectSlice
+    Assert-ScenarioReport -Scenario $Scenario -ReportsDir $reportsDir -ExpectedStatus $ExpectedStatus -ExpectedScaleClass $ExpectedScaleClass -ExpectedSignalStrategy $ExpectedSignalStrategy -ExpectedLocalizationStrategy $ExpectedLocalizationStrategy -ExpectedProofMode $ExpectedProofMode -ExpectedConfidence $ExpectedConfidence -ExpectedRootCause $ExpectedRootCause -ExpectedFirstSuspectSlice $ExpectedFirstSuspectSlice
 }
 
 function Invoke-IcebergToJdbcScenario {
@@ -367,9 +382,12 @@ function Invoke-IcebergToJdbcScenario {
         [string]$Scenario,
         [int]$ExpectedCheckExitCode,
         [string]$ExpectedStatus,
-        [string]$ExpectedObjectClass,
-        [string]$ExpectedSelectedPath,
-        [string]$ExpectedRootCause,
+        [string]$ExpectedScaleClass,
+        [string]$ExpectedSignalStrategy,
+        [string]$ExpectedLocalizationStrategy,
+        [string]$ExpectedProofMode,
+        [string]$ExpectedConfidence,
+        [string]$ExpectedRootCause = "",
         [string]$ExpectedFirstSuspectSlice = ""
     )
 
@@ -395,19 +413,19 @@ function Invoke-IcebergToJdbcScenario {
     Invoke-Native -FilePath "$env:JAVA_HOME\bin\java.exe" -Arguments @("-jar", $jarPath, "report", "show", (Join-Path $reportsDir "report.json")) -AllowedExitCodes @($ExpectedCheckExitCode)
 
     Assert-ScenarioArtifacts -Scenario $Scenario -ReportsDir $reportsDir -StatePath $statePath
-    Assert-ScenarioReport -Scenario $Scenario -ReportsDir $reportsDir -ExpectedStatus $ExpectedStatus -ExpectedObjectClass $ExpectedObjectClass -ExpectedSelectedPath $ExpectedSelectedPath -ExpectedRootCause $ExpectedRootCause -ExpectedFirstSuspectSlice $ExpectedFirstSuspectSlice
+    Assert-ScenarioReport -Scenario $Scenario -ReportsDir $reportsDir -ExpectedStatus $ExpectedStatus -ExpectedScaleClass $ExpectedScaleClass -ExpectedSignalStrategy $ExpectedSignalStrategy -ExpectedLocalizationStrategy $ExpectedLocalizationStrategy -ExpectedProofMode $ExpectedProofMode -ExpectedConfidence $ExpectedConfidence -ExpectedRootCause $ExpectedRootCause -ExpectedFirstSuspectSlice $ExpectedFirstSuspectSlice
 }
 
 Ensure-BuildArtifacts
 $itClasspath = Get-ItClasspath
 
-Invoke-JdbcScenario -Scenario "postgres_simulated_jdbc" -Dialect "postgres" -EstimatedRows 2 -SegmentColumn "" -ExpectedCheckExitCode 0 -ExpectedStatus "CONSISTENT" -ExpectedObjectClass "small_table_once" -ExpectedSelectedPath "schema -> exact diff" -ExpectedRootCause "consistent"
-Invoke-JdbcScenario -Scenario "mysql_simulated_jdbc" -Dialect "mysql" -EstimatedRows 2 -SegmentColumn "" -ExpectedCheckExitCode 0 -ExpectedStatus "CONSISTENT" -ExpectedObjectClass "small_table_once" -ExpectedSelectedPath "schema -> exact diff" -ExpectedRootCause "consistent"
-Invoke-JdbcScenario -Scenario "hive_jdbc_partitioned" -Dialect "hive" -EstimatedRows 1000000 -SegmentColumn "dt" -ExpectedCheckExitCode 1 -ExpectedStatus "DIFF_FOUND" -ExpectedObjectClass "partitioned_big_table" -ExpectedSelectedPath "gate -> signal -> localization -> drilldown" -ExpectedRootCause "latest_state_mismatch" -ExpectedFirstSuspectSlice "dt=2026-03-10"
-Invoke-JdbcScenario -Scenario "doris_jdbc_result_diff" -Dialect "doris" -EstimatedRows 2 -SegmentColumn "" -ExpectedCheckExitCode 1 -ExpectedStatus "DIFF_FOUND" -ExpectedObjectClass "small_table_once" -ExpectedSelectedPath "schema -> exact diff" -ExpectedRootCause "latest_state_mismatch"
-Invoke-JdbcToIcebergScenario -Scenario "jdbc_to_iceberg_consistent" -ExpectedCheckExitCode 0 -ExpectedStatus "CONSISTENT" -ExpectedObjectClass "lakehouse_object" -ExpectedSelectedPath "boundary metadata -> schema -> signal -> localization -> drilldown" -ExpectedRootCause "consistent"
-Invoke-JdbcToIcebergScenario -Scenario "jdbc_to_iceberg_diff" -ExpectedCheckExitCode 1 -ExpectedStatus "DIFF_FOUND" -ExpectedObjectClass "lakehouse_object" -ExpectedSelectedPath "boundary metadata -> schema -> signal -> localization -> drilldown" -ExpectedRootCause "latest_state_mismatch" -ExpectedFirstSuspectSlice "dt=2026-03-10"
-Invoke-IcebergToJdbcScenario -Scenario "iceberg_to_jdbc_partitioned" -ExpectedCheckExitCode 1 -ExpectedStatus "DIFF_FOUND" -ExpectedObjectClass "lakehouse_object" -ExpectedSelectedPath "boundary metadata -> schema -> signal -> localization -> drilldown" -ExpectedRootCause "latest_state_mismatch" -ExpectedFirstSuspectSlice "dt=2026-03-10"
+Invoke-JdbcScenario -Scenario "postgres_simulated_jdbc" -Dialect "postgres" -EstimatedRows 2 -SegmentColumn "" -ExpectedCheckExitCode 0 -ExpectedStatus "CONSISTENT" -ExpectedScaleClass "SMALL" -ExpectedSignalStrategy "global_row_count_plus_checksum" -ExpectedLocalizationStrategy "none" -ExpectedProofMode "GLOBAL_CHECKSUM" -ExpectedConfidence "HIGH"
+Invoke-JdbcScenario -Scenario "mysql_simulated_jdbc" -Dialect "mysql" -EstimatedRows 2 -SegmentColumn "" -ExpectedCheckExitCode 0 -ExpectedStatus "CONSISTENT" -ExpectedScaleClass "SMALL" -ExpectedSignalStrategy "global_row_count_plus_checksum" -ExpectedLocalizationStrategy "none" -ExpectedProofMode "GLOBAL_CHECKSUM" -ExpectedConfidence "HIGH"
+Invoke-JdbcScenario -Scenario "hive_jdbc_partitioned" -Dialect "hive" -EstimatedRows 1000000 -SegmentColumn "dt" -ExpectedCheckExitCode 1 -ExpectedStatus "DIFF_FOUND" -ExpectedScaleClass "LARGE" -ExpectedSignalStrategy "global_row_count_plus_grouped_checksum" -ExpectedLocalizationStrategy "partition_window" -ExpectedProofMode "EXACT_DIFF" -ExpectedConfidence "EXACT" -ExpectedRootCause "value_mismatch" -ExpectedFirstSuspectSlice "dt=2026-03-10"
+Invoke-JdbcScenario -Scenario "doris_jdbc_result_diff" -Dialect "doris" -EstimatedRows 2 -SegmentColumn "" -ExpectedCheckExitCode 1 -ExpectedStatus "DIFF_FOUND" -ExpectedScaleClass "SMALL" -ExpectedSignalStrategy "global_row_count_plus_checksum" -ExpectedLocalizationStrategy "none" -ExpectedProofMode "EXACT_DIFF" -ExpectedConfidence "EXACT" -ExpectedRootCause "value_mismatch"
+Invoke-JdbcToIcebergScenario -Scenario "jdbc_to_iceberg_consistent" -ExpectedCheckExitCode 0 -ExpectedStatus "CONSISTENT" -ExpectedScaleClass "LARGE" -ExpectedSignalStrategy "global_row_count_plus_grouped_checksum" -ExpectedLocalizationStrategy "partition_window" -ExpectedProofMode "GROUPED_CHECKSUM" -ExpectedConfidence "HIGH"
+Invoke-JdbcToIcebergScenario -Scenario "jdbc_to_iceberg_diff" -ExpectedCheckExitCode 1 -ExpectedStatus "DIFF_FOUND" -ExpectedScaleClass "LARGE" -ExpectedSignalStrategy "global_row_count_plus_grouped_checksum" -ExpectedLocalizationStrategy "partition_window" -ExpectedProofMode "EXACT_DIFF" -ExpectedConfidence "EXACT" -ExpectedRootCause "value_mismatch" -ExpectedFirstSuspectSlice "dt=2026-03-10"
+Invoke-IcebergToJdbcScenario -Scenario "iceberg_to_jdbc_partitioned" -ExpectedCheckExitCode 1 -ExpectedStatus "DIFF_FOUND" -ExpectedScaleClass "LARGE" -ExpectedSignalStrategy "global_row_count_plus_grouped_checksum" -ExpectedLocalizationStrategy "partition_window" -ExpectedProofMode "EXACT_DIFF" -ExpectedConfidence "EXACT" -ExpectedRootCause "value_mismatch" -ExpectedFirstSuspectSlice "dt=2026-03-10"
 
 Write-Host ""
 Write-Host "Second-layer local verification artifacts were written under $verifyRoot"

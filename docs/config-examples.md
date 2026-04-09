@@ -8,7 +8,27 @@
 
 本文只描述当前代码已经实现的行为，不把设计稿里尚未落地的能力写成“已经支持”。
 
+当前默认执行模型已经是 scale-driven：
+
+- `small`: `global row_count + global checksum -> exact diff`
+- `large`: `global row_count + grouped checksum -> suspicious slices -> exact diff`
+- `large` 无稳定切分且无 key：`xor_checksum_plus_sample`
+- `xlarge`: `metadata / routing digest -> suspicious routing groups -> exact diff`
+- `xlarge` 无稳定切分且无 key：`sampling`
+
 > 当前正式 v1 字段以 `task / boundary / query_connector / source / target / object / normalize / semantics / output` 为准。优先参考 `templates/*.yaml` 和 `scripts/verify-*.ps1` 里的样例；本文后续部分仍有历史性的 `planner / compare / segment` 术语残留，迁移中不再作为推荐写法。
+
+新增推荐字段：
+
+- `object.estimated_bytes`
+- `planner.scale_override`
+- `object.group_by`
+- `object.routing_strategy`
+
+新增模板：
+
+- `templates/large-table-nokey.yaml`
+- `templates/xlarge-sampling-fallback.yaml`
 
 ## 1. 当前实现范围
 
@@ -180,10 +200,10 @@ data-audit check -f task.yaml
 data-audit report show /path/to/report.json
 ```
 
-如果报告里有 `suspect_segments`，再执行：
+如果报告里有 `suspect_slices`，再执行：
 
 ```bash
-data-audit diff -f task.yaml --segment dt=2026-03-10
+data-audit diff -f task.yaml --slice dt=2026-03-10
 ```
 
 ## 4. 场景一：小表精确比对
@@ -585,8 +605,8 @@ planner:
 常见报告内容：
 
 - `status = DIFF_FOUND`
-- `suspect_segments = [dt=2026-03-10]`
-- `resume_hint = data-audit diff -f task.yaml --segment dt=2026-03-10`
+- `suspect_slices = [dt=2026-03-10]`
+- `resume_hint = data-audit diff -f task.yaml --slice dt=2026-03-10`
 
 ## 6. 场景三：湖仓表 snapshot 校验
 
@@ -645,23 +665,11 @@ object:
       - dt
 
 planner:
-  mode: metadata_first
-  hints:
-    object_class: lakehouse_object
-    prefer_metadata: true
-    partition_keys:
-      - dt
+  scale_override: xlarge
 
-normalization:
+normalize:
   decimal_scale:
     amount: 2
-
-compare:
-  segment:
-    by:
-      - dt
-  diff:
-    max_samples: 200
 
 ddl:
   mode: compatible
@@ -929,15 +937,14 @@ boundary metadata -> schema -> summary -> segment -> diff
 - `segment_first`：大表 / 分区表
 - `metadata_first`：湖仓对象
 
-`planner.hints.object_class`
+`planner.scale_override`
 
-- 作用：显式告诉 planner 对象类别
+- 作用：显式覆盖 scale classifier 的结果
 - 当前可选：
-  - `auto`
-  - `small_table_once`
-  - `partitioned_big_table`
-  - `lakehouse_object`
-- 推荐：通常保留 `auto`
+  - `small`
+  - `large`
+  - `xlarge`
+- 推荐：默认不配，只在已知规模估算不可靠时覆盖
 
 `planner.hints.estimated_rows`
 
@@ -1135,7 +1142,7 @@ boundary metadata -> schema -> summary -> segment -> diff
 - 当前会固定输出：
   - `report.json`
   - `report.html`
-  - `suspect_segments.csv`
+  - `suspect_slices.csv`
   - `row_diff_sample.csv`
   - `manifest.json`
 
@@ -1352,6 +1359,6 @@ object:
 
 1. 先根据场景挑一个最接近的模板
 2. 先跑 `plan`
-3. 确认 `selected_path` 是否符合预期
+3. 确认 `scale_class / signal_strategy / localization_strategy` 是否符合预期
 4. 再跑 `check`
 5. 最后根据 `report.json` 和 `resume_hint` 做复查

@@ -1,7 +1,25 @@
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$jdkHome = Join-Path $repoRoot ".tools\jdk-17"
+$commonRoot = $repoRoot
+try {
+    $gitDir = git -C $repoRoot rev-parse --git-common-dir 2>$null
+    if ($LASTEXITCODE -eq 0 -and $gitDir) {
+        $resolvedGitDir = if ([System.IO.Path]::IsPathRooted($gitDir)) {
+            $gitDir
+        } else {
+            Join-Path $repoRoot $gitDir
+        }
+        $candidateRoot = Split-Path -Parent $resolvedGitDir
+        if ($candidateRoot) {
+            $commonRoot = $candidateRoot
+        }
+    }
+} catch {
+    $commonRoot = $repoRoot
+}
+
+$jdkHome = Join-Path $commonRoot ".tools\jdk-17"
 $javaExe = Join-Path $jdkHome "bin\java.exe"
 
 if (-not (Test-Path $javaExe)) {

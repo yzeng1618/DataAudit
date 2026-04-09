@@ -8,6 +8,7 @@ import java.util.Map;
 public class TaskFileSpec {
     public TaskSpec task = new TaskSpec();
     public BoundarySpec boundary = new BoundarySpec();
+    public PlannerSpec planner = new PlannerSpec();
     public QueryConnectorSpec queryConnector;
     public EndpointSpec source = new EndpointSpec();
     public EndpointSpec target = new EndpointSpec();
@@ -62,7 +63,14 @@ public class TaskFileSpec {
         public List<String> key = new ArrayList<>();
         public List<String> columns = new ArrayList<>();
         public List<String> partitionBy = new ArrayList<>();
+        public List<String> groupBy = new ArrayList<>();
         public Long estimatedRows;
+        public Long estimatedBytes;
+        public String routingStrategy;
+    }
+
+    public static class PlannerSpec {
+        public String scaleOverride;
     }
 
     public static class NormalizeSpec {

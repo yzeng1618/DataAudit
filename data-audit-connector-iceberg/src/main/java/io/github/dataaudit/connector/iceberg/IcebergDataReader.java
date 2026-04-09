@@ -2,6 +2,7 @@ package io.github.dataaudit.connector.iceberg;
 
 import io.github.dataaudit.core.NormalizationService;
 import io.github.dataaudit.spi.connector.RowStreamReader;
+import io.github.dataaudit.spi.connector.RoutingSignalReader;
 import io.github.dataaudit.spi.connector.SchemaReader;
 import io.github.dataaudit.spi.connector.SignalReader;
 import io.github.dataaudit.spi.model.ReadRequest;
@@ -26,7 +27,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-final class IcebergDataReader implements SchemaReader, SignalReader, RowStreamReader {
+final class IcebergDataReader implements SchemaReader, SignalReader, RoutingSignalReader, RowStreamReader {
     private final TaskFileSpec spec;
     private final IcebergTableSupport tableSupport;
     private final NormalizationService normalizationService = new NormalizationService();
@@ -72,6 +73,25 @@ final class IcebergDataReader implements SchemaReader, SignalReader, RowStreamRe
             signal.rowCount = summary.rowCount;
             signal.checksum = summary.checksum;
             signals.add(signal);
+        }
+        return signals;
+    }
+
+    @Override
+    public List<SliceSignal> readRoutingSignals(ReadRequest request) throws Exception {
+        String routingColumn = tableSupport.resolveRoutingColumn(spec);
+        if (routingColumn == null || routingColumn.isEmpty()) {
+            return new ArrayList<>();
+        }
+        List<SliceSignal> signals = readSliceSignals(routingColumn, request);
+        for (SliceSignal signal : signals) {
+            String value = signal.sliceKey;
+            int separator = value.indexOf('=');
+            if (separator >= 0) {
+                value = value.substring(separator + 1);
+            }
+            signal.sliceKey = "routing=" + value;
+            signal.sliceType = "routing";
         }
         return signals;
     }

@@ -3,7 +3,10 @@ package io.github.dataaudit.it;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.dataaudit.cli.DataAuditMain;
+import io.github.dataaudit.connector.iceberg.IcebergConnectorFactory;
 import io.github.dataaudit.it.support.IcebergFixtureSupport;
+import io.github.dataaudit.spi.connector.ConnectorBundle;
+import io.github.dataaudit.spi.model.TaskFileSpec;
 import org.junit.jupiter.api.Test;
 import picocli.CommandLine;
 
@@ -16,6 +19,7 @@ import java.sql.Statement;
 import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class IcebergMetadataCliIntegrationTest {
@@ -46,11 +50,40 @@ class IcebergMetadataCliIntegrationTest {
         assertEquals(0, cli.execute("check", "-f", taskFile.toString()));
 
         JsonNode report = objectMapper.readTree(reportsDir.resolve("report.json").toFile());
-        assertEquals("lakehouse_object", report.path("plan").path("object_class").asText());
-        assertEquals("boundary metadata -> schema -> signal -> localization -> drilldown", report.path("plan").path("selected_path").asText());
-        assertEquals("iceberg_native_metadata", report.path("plan").path("signal_backend").asText());
+        assertEquals("SMALL", report.path("plan").path("scale_class").asText());
         assertEquals("CONSISTENT", report.path("result").path("status").asText());
+        assertEquals("GLOBAL_CHECKSUM", report.path("result").path("proof_mode").asText());
+        assertEquals("HIGH", report.path("result").path("confidence").asText());
+        assertTrue(report.path("plan").path("signal_backend").isMissingNode());
+        assertTrue(report.path("plan").path("object_class").isMissingNode());
+        assertTrue(report.path("plan").path("selected_path").isMissingNode());
         assertTrue(report.path("plan").path("decision_trace").isArray());
+    }
+
+    @Test
+    void shouldExposeRoutingSignalReaderForIcebergEndpoint() throws Exception {
+        Path tempDir = Files.createTempDirectory("data-audit-iceberg-routing");
+        Path tableLocation = tempDir.resolve("warehouse").resolve("orders");
+        IcebergFixtureSupport.resetOrdersTable(tableLocation, Arrays.asList(
+                IcebergFixtureSupport.order(1, "paid", "10.00", "2026-03-10"),
+                IcebergFixtureSupport.order(2, "paid", "30.00", "2026-03-11")
+        ));
+
+        TaskFileSpec spec = new TaskFileSpec();
+        spec.boundary.type = "snapshot";
+        spec.boundary.reference = "latest";
+        spec.source.type = "iceberg";
+        spec.source.location = tableLocation.toString().replace("\\", "/");
+        spec.source.table = "orders";
+        spec.object.partitionBy.add("dt");
+        spec.object.columns.add("order_id");
+        spec.object.columns.add("dt");
+        spec.object.estimatedRows = 200_000_000L;
+
+        try (ConnectorBundle bundle = new IcebergConnectorFactory().open(spec, spec.source)) {
+            assertTrue(bundle.getCapabilityDescriptor().supportsRoutingSignalPushdown);
+            assertNotNull(bundle.getRoutingSignalReader());
+        }
     }
 
     @Test
@@ -76,6 +109,8 @@ class IcebergMetadataCliIntegrationTest {
 
         JsonNode report = objectMapper.readTree(reportsDir.resolve("report.json").toFile());
         assertEquals("DIFF_FOUND", report.path("result").path("status").asText());
+        assertEquals("EXACT_DIFF", report.path("result").path("proof_mode").asText());
+        assertEquals("EXACT", report.path("result").path("confidence").asText());
         assertEquals("dt=2026-03-10", report.path("result").path("suspect_slices").get(0).path("slice_key").asText());
     }
 

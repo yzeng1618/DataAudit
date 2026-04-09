@@ -108,13 +108,10 @@ function New-TaskYaml {
         [bool]$IncludeKey = $true,
         [string]$BoundaryType = "job_finish",
         [string]$BoundaryReference = "latest",
-        [string]$DdlMode = "compatible",
         [string]$RenameFrom = "",
         [string]$RenameTo = "",
-        [string]$DeleteMode = "hard_delete",
         [bool]$ApplyAmountScale = $false,
-        [bool]$CaseInsensitiveStatus = $false,
-        [bool]$IncludeExtraNoteColumn = $false
+        [bool]$CaseInsensitiveStatus = $false
     )
 
     $amountColumn = if ($RenameFrom -and $RenameTo) { $RenameFrom } else { "amount" }
@@ -151,9 +148,6 @@ function New-TaskYaml {
     $lines.Add("    - status")
     $lines.Add("    - $amountColumn")
     $lines.Add("    - dt")
-    if ($IncludeExtraNoteColumn) {
-        $lines.Add("    - extra_note")
-    }
     if ($null -ne $EstimatedRows) {
         $lines.Add("  estimated_rows: $EstimatedRows")
     }
@@ -163,6 +157,7 @@ function New-TaskYaml {
     }
     $lines.Add("")
     $lines.Add("normalize:")
+    $lines.Add("  timezone: UTC")
     if ($ApplyAmountScale) {
         $lines.Add("  decimal_scale:")
         $lines.Add("    amount: 2")
@@ -171,17 +166,10 @@ function New-TaskYaml {
         $lines.Add("  case_insensitive_columns:")
         $lines.Add("    - status")
     }
-    if (-not $ApplyAmountScale -and -not $CaseInsensitiveStatus) {
-        $lines.Add("  timezone: UTC")
-    }
-    $lines.Add("")
-    $lines.Add("semantics:")
-    $lines.Add("  dml:")
-    $lines.Add("    delete:")
-    $lines.Add("      mode: $DeleteMode")
-    $lines.Add("  ddl:")
-    $lines.Add("    mode: $DdlMode")
     if ($RenameFrom -and $RenameTo) {
+        $lines.Add("")
+        $lines.Add("semantics:")
+        $lines.Add("  ddl:")
         $lines.Add("    rename_mapping:")
         $lines.Add("      $RenameFrom`: $RenameTo")
     }
@@ -192,6 +180,17 @@ function New-TaskYaml {
     Set-Content -Path $Path -Value $lines -Encoding UTF8
 }
 
+function Assert-LegacyFieldsRemoved {
+    param($Report, [string]$Scenario)
+
+    Assert-True -Condition ($null -eq $Report.plan.object_class) -Message "Legacy field plan.object_class should be absent for $Scenario"
+    Assert-True -Condition ($null -eq $Report.plan.selected_path) -Message "Legacy field plan.selected_path should be absent for $Scenario"
+    Assert-True -Condition ($null -eq $Report.plan.signal_backend) -Message "Legacy field plan.signal_backend should be absent for $Scenario"
+    Assert-True -Condition ($null -eq $Report.result.schema_issues) -Message "Legacy field result.schema_issues should be absent for $Scenario"
+    Assert-True -Condition ($null -eq $Report.result.dml_audit) -Message "Legacy field result.dml_audit should be absent for $Scenario"
+    Assert-True -Condition ($null -eq $Report.result.ddl_audit) -Message "Legacy field result.ddl_audit should be absent for $Scenario"
+}
+
 function Invoke-Scenario {
     param(
         [string]$Scenario,
@@ -200,24 +199,23 @@ function Invoke-Scenario {
         [int]$ExpectedPlanExitCode,
         [int]$ExpectedCheckExitCode,
         [string]$ExpectedStatus,
-        [string]$ExpectedObjectClass,
-        [string]$ExpectedSelectedPath,
-        [string]$ExpectedRootCause,
-        [string]$ExpectedConsistencyLevel = "",
+        [string]$ExpectedScaleClass = "",
+        [string]$ExpectedSignalStrategy = "",
         [string]$ExpectedLocalizationStrategy = "",
+        [string]$ExpectedProofMode = "",
+        [string]$ExpectedConfidence = "",
+        [string]$ExpectedRootCause = "",
         [string]$ExpectedFirstSuspectSlice = "",
         [string]$ExpectedFirstSuspectSlicePrefix = "",
-        [string]$ExpectedInconclusiveReason = "",
+        [object]$ExpectedNoKeyMode = $null,
+        [string]$ExpectedFallbackReason = "",
         [bool]$IncludeKey = $true,
         [string]$BoundaryType = "job_finish",
         [string]$BoundaryReference = "latest",
-        [string]$DdlMode = "compatible",
         [string]$RenameFrom = "",
         [string]$RenameTo = "",
-        [string]$DeleteMode = "hard_delete",
         [bool]$ApplyAmountScale = $false,
-        [bool]$CaseInsensitiveStatus = $false,
-        [bool]$IncludeExtraNoteColumn = $false
+        [bool]$CaseInsensitiveStatus = $false
     )
 
     $scenarioRoot = Join-Path $verifyRoot $Scenario
@@ -244,13 +242,10 @@ function Invoke-Scenario {
         -IncludeKey:$IncludeKey `
         -BoundaryType $BoundaryType `
         -BoundaryReference $BoundaryReference `
-        -DdlMode $DdlMode `
         -RenameFrom $RenameFrom `
         -RenameTo $RenameTo `
-        -DeleteMode $DeleteMode `
         -ApplyAmountScale:$ApplyAmountScale `
-        -CaseInsensitiveStatus:$CaseInsensitiveStatus `
-        -IncludeExtraNoteColumn:$IncludeExtraNoteColumn
+        -CaseInsensitiveStatus:$CaseInsensitiveStatus
 
     Write-Host ""
     Write-Host "=== Scenario: $Scenario ==="
@@ -267,24 +262,45 @@ function Invoke-Scenario {
     Assert-True -Condition (Test-Path $statePath) -Message "state.db was not generated for $Scenario"
 
     $report = Get-Content $reportPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    Assert-LegacyFieldsRemoved -Report $report -Scenario $Scenario
     Assert-Equal -Actual $report.result.status -Expected $ExpectedStatus -Message "Unexpected report status for $Scenario"
-    Assert-Equal -Actual $report.plan.object_class -Expected $ExpectedObjectClass -Message "Unexpected object class for $Scenario"
-    Assert-Equal -Actual $report.plan.selected_path -Expected $ExpectedSelectedPath -Message "Unexpected selected path for $Scenario"
-    Assert-Equal -Actual $report.result.root_cause -Expected $ExpectedRootCause -Message "Unexpected root cause for $Scenario"
-    if ($ExpectedConsistencyLevel) {
-        Assert-Equal -Actual $report.result.consistency_level -Expected $ExpectedConsistencyLevel -Message "Unexpected consistency level for $Scenario"
+
+    if ($ExpectedScaleClass) {
+        Assert-Equal -Actual $report.plan.scale_class -Expected $ExpectedScaleClass -Message "Unexpected scale class for $Scenario"
+    }
+    if ($ExpectedSignalStrategy) {
+        Assert-Equal -Actual $report.plan.signal_strategy -Expected $ExpectedSignalStrategy -Message "Unexpected signal strategy for $Scenario"
     }
     if ($ExpectedLocalizationStrategy) {
         Assert-Equal -Actual $report.plan.localization_strategy -Expected $ExpectedLocalizationStrategy -Message "Unexpected localization strategy for $Scenario"
     }
+    if ($ExpectedProofMode) {
+        Assert-Equal -Actual $report.result.proof_mode -Expected $ExpectedProofMode -Message "Unexpected proof mode for $Scenario"
+    }
+    if ($ExpectedConfidence) {
+        Assert-Equal -Actual $report.result.confidence -Expected $ExpectedConfidence -Message "Unexpected confidence for $Scenario"
+    }
+
+    $actualRootCause = [string]$report.result.root_cause
+    if ([string]::IsNullOrEmpty($ExpectedRootCause)) {
+        Assert-True -Condition ([string]::IsNullOrEmpty($actualRootCause)) -Message "Expected empty root cause for $Scenario"
+    } else {
+        Assert-Equal -Actual $actualRootCause -Expected $ExpectedRootCause -Message "Unexpected root cause for $Scenario"
+    }
+
     if ($ExpectedFirstSuspectSlice) {
         Assert-Equal -Actual $report.result.suspect_slices[0].slice_key -Expected $ExpectedFirstSuspectSlice -Message "Unexpected suspect slice for $Scenario"
     }
     if ($ExpectedFirstSuspectSlicePrefix) {
         Assert-StartsWith -Actual ([string]$report.result.suspect_slices[0].slice_key) -ExpectedPrefix $ExpectedFirstSuspectSlicePrefix -Message "Unexpected suspect slice prefix for $Scenario"
     }
-    if ($ExpectedInconclusiveReason) {
-        Assert-Equal -Actual $report.result.inconclusive_reason -Expected $ExpectedInconclusiveReason -Message "Unexpected inconclusive reason for $Scenario"
+    if ($null -ne $ExpectedNoKeyMode) {
+        Assert-Equal -Actual $report.result.no_key_mode -Expected $ExpectedNoKeyMode -Message "Unexpected no_key_mode for $Scenario"
+    }
+    if ([string]::IsNullOrEmpty($ExpectedFallbackReason)) {
+        Assert-True -Condition ([string]::IsNullOrEmpty([string]$report.result.fallback_reason)) -Message "Expected empty fallback reason for $Scenario"
+    } else {
+        Assert-Equal -Actual $report.result.fallback_reason -Expected $ExpectedFallbackReason -Message "Unexpected fallback reason for $Scenario"
     }
 }
 
@@ -297,16 +313,16 @@ Invoke-Native -FilePath "mvn" -Arguments @("-q", "-pl", "data-audit-cli", "-am",
 New-Item -ItemType Directory -Force -Path $classDir | Out-Null
 Invoke-Native -FilePath "$env:JAVA_HOME\bin\javac.exe" -Arguments @("-cp", "$sqliteJar;$slf4jApiJar", "-d", $classDir, (Join-Path $PSScriptRoot "java\SampleSqliteSeeder.java"))
 
-Invoke-Scenario -Scenario "consistent_small" -EstimatedRows 2 -SegmentColumn "" -ExpectedPlanExitCode 0 -ExpectedCheckExitCode 0 -ExpectedStatus "CONSISTENT" -ExpectedObjectClass "small_table_once" -ExpectedSelectedPath "schema -> exact diff" -ExpectedRootCause "consistent" -ExpectedConsistencyLevel "exact"
-Invoke-Scenario -Scenario "small_diff" -EstimatedRows 2 -SegmentColumn "" -ExpectedPlanExitCode 0 -ExpectedCheckExitCode 1 -ExpectedStatus "DIFF_FOUND" -ExpectedObjectClass "small_table_once" -ExpectedSelectedPath "schema -> exact diff" -ExpectedRootCause "latest_state_mismatch" -ExpectedConsistencyLevel "exact" -ApplyAmountScale:$true
-Invoke-Scenario -Scenario "keyless_multiset" -EstimatedRows 3 -SegmentColumn "" -ExpectedPlanExitCode 0 -ExpectedCheckExitCode 1 -ExpectedStatus "DIFF_FOUND" -ExpectedObjectClass "small_table_once" -ExpectedSelectedPath "schema -> exact diff" -ExpectedRootCause "keyless_multiset_mismatch" -ExpectedConsistencyLevel "exact" -IncludeKey:$false
-Invoke-Scenario -Scenario "partition_mismatch" -EstimatedRows 1000000 -SegmentColumn "dt" -ExpectedPlanExitCode 0 -ExpectedCheckExitCode 1 -ExpectedStatus "DIFF_FOUND" -ExpectedObjectClass "partitioned_big_table" -ExpectedSelectedPath "gate -> signal -> localization -> drilldown" -ExpectedRootCause "latest_state_mismatch" -ExpectedConsistencyLevel "exact" -ExpectedLocalizationStrategy "natural_slice" -ExpectedFirstSuspectSlice "dt=2026-03-10" -ApplyAmountScale:$true
-Invoke-Scenario -Scenario "bucket_mismatch" -EstimatedRows 1000000 -SegmentColumn "" -ExpectedPlanExitCode 0 -ExpectedCheckExitCode 1 -ExpectedStatus "DIFF_FOUND" -ExpectedObjectClass "partitioned_big_table" -ExpectedSelectedPath "gate -> signal -> localization -> drilldown" -ExpectedRootCause "latest_state_mismatch" -ExpectedConsistencyLevel "exact" -ExpectedLocalizationStrategy "virtual_bucket" -ExpectedFirstSuspectSlicePrefix "bucket="
-Invoke-Scenario -Scenario "keyless_large_inconclusive" -EstimatedRows 1000000 -SegmentColumn "" -ExpectedPlanExitCode 0 -ExpectedCheckExitCode 3 -ExpectedStatus "INCONCLUSIVE" -ExpectedObjectClass "partitioned_big_table" -ExpectedSelectedPath "gate -> signal -> localization -> drilldown" -ExpectedRootCause "sampling_inconclusive" -ExpectedConsistencyLevel "high_confidence" -ExpectedLocalizationStrategy "sample_first" -ExpectedInconclusiveReason "keyless_large_object_requires_exact_or_natural_slice" -IncludeKey:$false
-Invoke-Scenario -Scenario "schema_mismatch" -EstimatedRows 2 -SegmentColumn "" -ExpectedPlanExitCode 0 -ExpectedCheckExitCode 1 -ExpectedStatus "DIFF_FOUND" -ExpectedObjectClass "small_table_once" -ExpectedSelectedPath "schema -> exact diff" -ExpectedRootCause "schema_mismatch" -ExpectedConsistencyLevel "exact" -DdlMode "strict" -IncludeExtraNoteColumn:$true
-Invoke-Scenario -Scenario "unstable_snapshot_jdbc" -EstimatedRows 2 -SegmentColumn "" -ExpectedPlanExitCode 5 -ExpectedCheckExitCode 5 -ExpectedStatus "REFUSED" -ExpectedObjectClass "" -ExpectedSelectedPath "" -ExpectedRootCause "unstable_boundary" -BoundaryType "snapshot" -BoundaryReference "latest"
-Invoke-Scenario -Scenario "ddl_rename_compatible" -EstimatedRows 1 -SegmentColumn "" -ExpectedPlanExitCode 0 -ExpectedCheckExitCode 0 -ExpectedStatus "CONSISTENT" -ExpectedObjectClass "small_table_once" -ExpectedSelectedPath "schema -> exact diff" -ExpectedRootCause "consistent" -ExpectedConsistencyLevel "exact" -RenameFrom "old_amount" -RenameTo "amount" -ApplyAmountScale:$true -CaseInsensitiveStatus:$true
-Invoke-Scenario -Scenario "delete_hard_delete_mismatch" -EstimatedRows 2 -SegmentColumn "" -ExpectedPlanExitCode 0 -ExpectedCheckExitCode 1 -ExpectedStatus "DIFF_FOUND" -ExpectedObjectClass "small_table_once" -ExpectedSelectedPath "schema -> exact diff" -ExpectedRootCause "delete_not_effective" -ExpectedConsistencyLevel "exact" -DeleteMode "hard_delete"
+Invoke-Scenario -Scenario "consistent_small" -EstimatedRows 2 -SegmentColumn "" -ExpectedPlanExitCode 0 -ExpectedCheckExitCode 0 -ExpectedStatus "CONSISTENT" -ExpectedScaleClass "SMALL" -ExpectedSignalStrategy "global_row_count_plus_checksum" -ExpectedLocalizationStrategy "none" -ExpectedProofMode "GLOBAL_CHECKSUM" -ExpectedConfidence "HIGH" -ExpectedNoKeyMode $false
+Invoke-Scenario -Scenario "small_diff" -EstimatedRows 2 -SegmentColumn "" -ExpectedPlanExitCode 0 -ExpectedCheckExitCode 1 -ExpectedStatus "DIFF_FOUND" -ExpectedScaleClass "SMALL" -ExpectedSignalStrategy "global_row_count_plus_checksum" -ExpectedLocalizationStrategy "none" -ExpectedProofMode "EXACT_DIFF" -ExpectedConfidence "EXACT" -ExpectedRootCause "value_mismatch" -ExpectedNoKeyMode $false -ApplyAmountScale:$true
+Invoke-Scenario -Scenario "keyless_multiset" -EstimatedRows 3 -SegmentColumn "" -ExpectedPlanExitCode 0 -ExpectedCheckExitCode 1 -ExpectedStatus "DIFF_FOUND" -ExpectedScaleClass "SMALL" -ExpectedSignalStrategy "global_row_count_plus_checksum" -ExpectedLocalizationStrategy "none" -ExpectedProofMode "EXACT_DIFF" -ExpectedConfidence "EXACT" -ExpectedRootCause "duplicate_or_missing" -ExpectedNoKeyMode $false -IncludeKey:$false
+Invoke-Scenario -Scenario "partition_mismatch" -EstimatedRows 1000000 -SegmentColumn "dt" -ExpectedPlanExitCode 0 -ExpectedCheckExitCode 1 -ExpectedStatus "DIFF_FOUND" -ExpectedScaleClass "LARGE" -ExpectedSignalStrategy "global_row_count_plus_grouped_checksum" -ExpectedLocalizationStrategy "partition_window" -ExpectedProofMode "EXACT_DIFF" -ExpectedConfidence "EXACT" -ExpectedRootCause "value_mismatch" -ExpectedFirstSuspectSlice "dt=2026-03-10" -ExpectedNoKeyMode $false -ApplyAmountScale:$true
+Invoke-Scenario -Scenario "bucket_mismatch" -EstimatedRows 1000000 -SegmentColumn "" -ExpectedPlanExitCode 0 -ExpectedCheckExitCode 1 -ExpectedStatus "DIFF_FOUND" -ExpectedScaleClass "LARGE" -ExpectedSignalStrategy "global_row_count_plus_grouped_checksum" -ExpectedLocalizationStrategy "key_hash_bucket" -ExpectedProofMode "EXACT_DIFF" -ExpectedConfidence "EXACT" -ExpectedRootCause "value_mismatch" -ExpectedFirstSuspectSlicePrefix "bucket=" -ExpectedNoKeyMode $false
+Invoke-Scenario -Scenario "keyless_large_consistent" -EstimatedRows 1000000 -SegmentColumn "" -ExpectedPlanExitCode 0 -ExpectedCheckExitCode 0 -ExpectedStatus "CONSISTENT" -ExpectedScaleClass "LARGE" -ExpectedSignalStrategy "global_row_count_plus_grouped_checksum" -ExpectedLocalizationStrategy "no_key_xor" -ExpectedProofMode "XOR_CHECKSUM_PLUS_SAMPLE" -ExpectedConfidence "MEDIUM" -ExpectedNoKeyMode $true -ExpectedFallbackReason "no_key_xor_fallback" -IncludeKey:$false
+Invoke-Scenario -Scenario "keyless_large_inconclusive" -EstimatedRows 1000000 -SegmentColumn "" -ExpectedPlanExitCode 0 -ExpectedCheckExitCode 1 -ExpectedStatus "DIFF_FOUND" -ExpectedScaleClass "LARGE" -ExpectedSignalStrategy "global_row_count_plus_grouped_checksum" -ExpectedLocalizationStrategy "no_key_xor" -ExpectedProofMode "XOR_CHECKSUM_PLUS_SAMPLE" -ExpectedConfidence "MEDIUM" -ExpectedRootCause "value_mismatch" -ExpectedFirstSuspectSlice "full_table" -ExpectedNoKeyMode $true -ExpectedFallbackReason "no_key_xor_fallback" -IncludeKey:$false
+Invoke-Scenario -Scenario "unstable_snapshot_jdbc" -EstimatedRows 2 -SegmentColumn "" -ExpectedPlanExitCode 5 -ExpectedCheckExitCode 5 -ExpectedStatus "UNSTABLE_BOUNDARY" -BoundaryType "snapshot" -BoundaryReference "latest"
+Invoke-Scenario -Scenario "ddl_rename_compatible" -EstimatedRows 1 -SegmentColumn "" -ExpectedPlanExitCode 0 -ExpectedCheckExitCode 0 -ExpectedStatus "CONSISTENT" -ExpectedScaleClass "SMALL" -ExpectedSignalStrategy "global_row_count_plus_checksum" -ExpectedLocalizationStrategy "none" -ExpectedProofMode "GLOBAL_CHECKSUM" -ExpectedConfidence "HIGH" -ExpectedNoKeyMode $false -RenameFrom "old_amount" -RenameTo "amount" -ApplyAmountScale:$true -CaseInsensitiveStatus:$true
+Invoke-Scenario -Scenario "delete_hard_delete_mismatch" -EstimatedRows 2 -SegmentColumn "" -ExpectedPlanExitCode 0 -ExpectedCheckExitCode 1 -ExpectedStatus "DIFF_FOUND" -ExpectedScaleClass "SMALL" -ExpectedSignalStrategy "global_row_count_plus_checksum" -ExpectedLocalizationStrategy "none" -ExpectedProofMode "EXACT_DIFF" -ExpectedConfidence "EXACT" -ExpectedRootCause "row_count_mismatch" -ExpectedNoKeyMode $false
 
 Write-Host ""
 Write-Host "Verification artifacts were written under $verifyRoot"

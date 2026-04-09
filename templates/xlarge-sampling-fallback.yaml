@@ -1,0 +1,29 @@
+task:
+  name: xlarge_sampling_fallback
+boundary:
+  type: job_finish
+source:
+  type: jdbc
+  url: jdbc:postgresql://source:5432/app
+  username: app
+  password: secret
+  table: public.events
+  options:
+    dialect: postgres
+target:
+  type: jdbc
+  url: jdbc:postgresql://target:5432/app
+  username: app
+  password: secret
+  table: public.events_copy
+  options:
+    dialect: postgres
+object:
+  columns:
+    - event_id
+    - event_type
+    - dt
+  estimated_rows: 200000000
+  estimated_bytes: 34359738368
+output:
+  dir: ./reports/xlarge_sampling_fallback

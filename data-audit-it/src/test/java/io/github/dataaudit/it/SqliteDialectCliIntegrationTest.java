@@ -41,10 +41,17 @@ class SqliteDialectCliIntegrationTest {
         assertEquals(0, cli.execute("check", "-f", taskFile.toString()));
 
         JsonNode report = objectMapper.readTree(reportsDir.resolve("report.json").toFile());
-        assertEquals("small_table_once", report.path("plan").path("object_class").asText());
-        assertEquals("schema -> exact diff", report.path("plan").path("selected_path").asText());
+        assertEquals("SMALL", report.path("plan").path("scale_class").asText());
+        assertEquals("global_row_count_plus_checksum", report.path("plan").path("signal_strategy").asText());
         assertEquals("CONSISTENT", report.path("result").path("status").asText());
-        assertEquals("exact", report.path("result").path("consistency_level").asText());
+        assertEquals("GLOBAL_CHECKSUM", report.path("result").path("proof_mode").asText());
+        assertEquals("HIGH", report.path("result").path("confidence").asText());
+        assertEquals(true, report.path("plan").path("signal_backend").isMissingNode());
+        assertEquals(true, report.path("plan").path("object_class").isMissingNode());
+        assertEquals(true, report.path("plan").path("selected_path").isMissingNode());
+        assertEquals(true, report.path("result").path("schema_issues").isMissingNode());
+        assertEquals(true, report.path("result").path("dml_audit").isMissingNode());
+        assertEquals(true, report.path("result").path("ddl_audit").isMissingNode());
     }
 
     @Test
@@ -66,9 +73,9 @@ class SqliteDialectCliIntegrationTest {
         assertEquals(0, cli.execute("check", "-f", taskFile.toString()));
 
         JsonNode report = objectMapper.readTree(reportsDir.resolve("report.json").toFile());
-        assertEquals("small_table_once", report.path("plan").path("object_class").asText());
-        assertEquals("schema -> exact diff", report.path("plan").path("selected_path").asText());
+        assertEquals("SMALL", report.path("plan").path("scale_class").asText());
         assertEquals("CONSISTENT", report.path("result").path("status").asText());
+        assertEquals("GLOBAL_CHECKSUM", report.path("result").path("proof_mode").asText());
     }
 
     @Test
@@ -91,8 +98,11 @@ class SqliteDialectCliIntegrationTest {
         assertEquals(1, checkExit);
 
         JsonNode report = objectMapper.readTree(reportsDir.resolve("report.json").toFile());
-        assertEquals("gate -> signal -> localization -> drilldown", report.path("plan").path("selected_path").asText());
+        assertEquals("LARGE", report.path("plan").path("scale_class").asText());
+        assertEquals("partition_window", report.path("plan").path("localization_strategy").asText());
         assertEquals("DIFF_FOUND", report.path("result").path("status").asText());
+        assertEquals("EXACT_DIFF", report.path("result").path("proof_mode").asText());
+        assertEquals("EXACT", report.path("result").path("confidence").asText());
         assertEquals("dt=2026-03-10", report.path("result").path("suspect_slices").get(0).path("slice_key").asText());
     }
 
@@ -158,7 +168,7 @@ class SqliteDialectCliIntegrationTest {
 
         JsonNode report = objectMapper.readTree(reportsDir.resolve("report.json").toFile());
         assertEquals("CONSISTENT", report.path("result").path("status").asText());
-        assertEquals("compatible", report.path("result").path("ddl_audit").path("verdict").asText());
+        assertEquals("GLOBAL_CHECKSUM", report.path("result").path("proof_mode").asText());
     }
 
     private String jdbcYaml(String taskName,

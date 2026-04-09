@@ -1,0 +1,32 @@
+task:
+  name: large_table_nokey
+boundary:
+  type: job_finish
+source:
+  type: jdbc
+  url: jdbc:postgresql://source:5432/app
+  username: app
+  password: secret
+  table: public.orders
+  options:
+    dialect: postgres
+target:
+  type: jdbc
+  url: jdbc:postgresql://target:5432/app
+  username: app
+  password: secret
+  table: public.orders_copy
+  options:
+    dialect: postgres
+object:
+  columns:
+    - order_id
+    - amount
+    - dt
+  estimated_rows: 5000000
+  estimated_bytes: 8589934592
+normalize:
+  decimal_scale:
+    amount: 2
+output:
+  dir: ./reports/large_table_nokey

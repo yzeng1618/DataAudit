@@ -20,7 +20,6 @@ class SqliteStateStoreTest {
         store.initialize();
         ExecutionPlan plan = new ExecutionPlan();
         plan.boundary = new BoundaryRef();
-        plan.selectedPath = "schema -> exact diff";
         RunState state = store.startRun("demo", "fingerprint", plan);
         store.completeRun(state.runId, "CONSISTENT", tempFile.resolveSibling("report.json"), tempFile.resolveSibling("report.html"));
         Optional<RunState> reloaded = store.findRun(state.runId);

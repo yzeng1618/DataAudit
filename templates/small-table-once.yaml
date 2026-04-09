@@ -1,9 +1,10 @@
 task:
-  name: small_table_once
+  name: small_table_jdbc
   mode: post_check
 
 boundary:
   type: job_finish
+  reference: latest
 
 source:
   type: jdbc
@@ -26,16 +27,16 @@ target:
 object:
   key:
     - order_id
+  columns:
+    - order_id
+    - status
+    - amount
+    - dt
+  estimated_rows: 10000
 
-planner:
-  mode: auto
-  hints:
-    estimated_rows: 10000
-    max_exact_rows: 100000
+normalize:
+  decimal_scale:
+    amount: 2
 
 output:
-  dir: ./reports/small_table_once
-
-state:
-  backend: sqlite
-  path: ./.recon/state.db
+  dir: ./reports/small_table_jdbc

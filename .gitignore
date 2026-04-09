@@ -7,3 +7,4 @@ target/
 reports/
 .tools/
 .tmp/
+.worktrees/

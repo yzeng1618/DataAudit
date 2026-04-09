@@ -2,15 +2,18 @@ package io.github.dataaudit.core;
 
 import io.github.dataaudit.spi.model.BoundaryRef;
 import io.github.dataaudit.spi.model.CapabilityDescriptor;
+import io.github.dataaudit.spi.model.ProofMode;
+import io.github.dataaudit.spi.model.ScaleClass;
 import io.github.dataaudit.spi.model.ExecutionPlan;
 import io.github.dataaudit.spi.model.TaskFileSpec;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class PlanningServiceTest {
     @Test
-    void shouldPickExactDiffForSmallJdbcTable() {
+    void shouldPlanGlobalChecksumForSmallJdbcTable() {
         TaskFileSpec spec = new TaskFileSpec();
         spec.task.name = "demo";
         spec.boundary.type = "job_finish";
@@ -26,8 +29,11 @@ class PlanningServiceTest {
         boundary.stable = true;
 
         ExecutionPlan plan = new PlanningService().plan(spec, source, target, boundary);
-        assertEquals("small_table_once", plan.objectClass);
-        assertEquals("schema -> exact diff", plan.selectedPath);
+        assertEquals(ScaleClass.SMALL, plan.scaleClass);
+        assertEquals("global_row_count_plus_checksum", plan.signalStrategy);
+        assertEquals("none", plan.localizationStrategy);
+        assertEquals(ProofMode.GLOBAL_CHECKSUM, plan.proofMode);
+        assertThrows(NoSuchFieldException.class, () -> ExecutionPlan.class.getDeclaredField("signalBackend"));
     }
 
     @Test
@@ -37,11 +43,13 @@ class PlanningServiceTest {
         spec.boundary.type = "snapshot";
         spec.source.type = "jdbc";
         spec.target.type = "iceberg";
+        spec.object.estimatedRows = 200_000_000L;
 
         CapabilityDescriptor source = new CapabilityDescriptor();
         CapabilityDescriptor target = new CapabilityDescriptor();
         target.supportsSnapshotBoundary = true;
         target.supportsMetadataStats = true;
+        target.supportsRoutingSignalPushdown = true;
 
         BoundaryRef boundary = new BoundaryRef();
         boundary.type = "snapshot";
@@ -49,8 +57,10 @@ class PlanningServiceTest {
         boundary.stable = true;
 
         ExecutionPlan plan = new PlanningService().plan(spec, source, target, boundary);
-        assertEquals("lakehouse_object", plan.objectClass);
-        assertEquals("boundary metadata -> schema -> signal -> localization -> drilldown", plan.selectedPath);
+        assertEquals(ScaleClass.XLARGE, plan.scaleClass);
+        assertEquals("partition_stats_or_metadata", plan.signalStrategy);
+        assertEquals("routing_digest", plan.localizationStrategy);
+        assertEquals(ProofMode.ROUTING_DIGEST, plan.proofMode);
     }
 
     @Test
@@ -77,10 +87,10 @@ class PlanningServiceTest {
         boundary.stable = true;
 
         ExecutionPlan plan = new PlanningService().plan(spec, source, target, boundary);
-        assertEquals("partitioned_big_table", plan.objectClass);
-        assertEquals("gate -> signal -> localization -> drilldown", plan.selectedPath);
-        assertEquals("trino_grouped_signal", plan.signalBackend);
-        assertEquals("natural_slice", plan.localizationStrategy);
+        assertEquals(ScaleClass.LARGE, plan.scaleClass);
+        assertEquals("global_row_count_plus_grouped_checksum", plan.signalStrategy);
+        assertEquals("partition_window", plan.localizationStrategy);
+        assertEquals(ProofMode.GROUPED_CHECKSUM, plan.proofMode);
     }
 
     @Test
@@ -101,9 +111,9 @@ class PlanningServiceTest {
         boundary.stable = true;
 
         ExecutionPlan plan = new PlanningService().plan(spec, source, target, boundary);
-        assertEquals("partitioned_big_table", plan.objectClass);
-        assertEquals("gate -> signal -> localization -> drilldown", plan.selectedPath);
-        assertEquals("virtual_bucket", plan.localizationStrategy);
+        assertEquals(ScaleClass.LARGE, plan.scaleClass);
+        assertEquals("key_hash_bucket", plan.localizationStrategy);
+        assertEquals(ProofMode.GROUPED_CHECKSUM, plan.proofMode);
     }
 
     @Test
@@ -130,9 +140,9 @@ class PlanningServiceTest {
         boundary.stable = true;
 
         ExecutionPlan plan = new PlanningService().plan(spec, source, target, boundary);
-        assertEquals("partitioned_big_table", plan.objectClass);
-        assertEquals("gate -> signal -> localization -> drilldown", plan.selectedPath);
-        assertEquals("trino_grouped_signal", plan.signalBackend);
-        assertEquals("natural_slice", plan.localizationStrategy);
+        assertEquals(ScaleClass.LARGE, plan.scaleClass);
+        assertEquals("global_row_count_plus_grouped_checksum", plan.signalStrategy);
+        assertEquals("partition_window", plan.localizationStrategy);
+        assertEquals(ProofMode.GROUPED_CHECKSUM, plan.proofMode);
     }
 }

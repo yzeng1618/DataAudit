@@ -1,19 +1,15 @@
 package io.github.dataaudit.spi.model;
 
-import java.util.ArrayList;
 import java.util.List;
+import java.util.ArrayList;
 
 public class ExecutionPlan {
-    public String objectClass;
-    public String selectedPath;
-    public List<String> executedLevels = new ArrayList<>();
+    public ScaleClass scaleClass = ScaleClass.SMALL;
+    public String signalStrategy;
+    public ProofMode proofMode = ProofMode.EXACT_DIFF;
+    public String localizationStrategy;
     public List<String> decisionTrace = new ArrayList<>();
     public BoundaryRef boundary;
-    public String signalBackend;
-    public String signalStrategy;
-    public String localizationStrategy;
-    public String resumeStrategy;
     public String reason;
-    public String shortCircuitReason;
     public String refuseReason;
 }

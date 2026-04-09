@@ -8,7 +8,6 @@ public class RunState {
     public String runId;
     public String taskName;
     public String boundaryFingerprint;
-    public String selectedPath;
     public String status;
     public OffsetDateTime startedAt;
     public OffsetDateTime finishedAt;

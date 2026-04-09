@@ -4,6 +4,7 @@ import io.github.dataaudit.spi.model.TaskFileSpec;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 public class SpecValidator {
     public List<String> validate(TaskFileSpec spec) {
@@ -18,6 +19,15 @@ public class SpecValidator {
         validateEndpoint("target", spec.target, spec, issues);
         if (spec.queryConnector != null && !isBlank(spec.queryConnector.type) && !"trino".equalsIgnoreCase(spec.queryConnector.type)) {
             issues.add("query_connector.type must be trino");
+        }
+        if (spec.object != null && spec.object.estimatedBytes != null && spec.object.estimatedBytes < 0L) {
+            issues.add("object.estimated_bytes must be non-negative");
+        }
+        if (spec.planner != null && !isBlank(spec.planner.scaleOverride)) {
+            String scale = spec.planner.scaleOverride.toLowerCase(Locale.ROOT);
+            if (!List.of("small", "large", "xlarge").contains(scale)) {
+                issues.add("planner.scale_override must be small, large or xlarge");
+            }
         }
         if (spec.output == null || isBlank(spec.output.dir)) {
             issues.add("output.dir is required");

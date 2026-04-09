@@ -3,6 +3,11 @@ package io.github.dataaudit.it;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.dataaudit.cli.DataAuditMain;
+import io.github.dataaudit.connector.trino.TrinoConnectorFactory;
+import io.github.dataaudit.spi.connector.ConnectorBundle;
+import io.github.dataaudit.spi.model.ReadRequest;
+import io.github.dataaudit.spi.model.SliceSignal;
+import io.github.dataaudit.spi.model.TaskFileSpec;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
@@ -13,8 +18,11 @@ import picocli.CommandLine;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @Testcontainers(disabledWithoutDocker = true)
 class TrinoCliIntegrationTest {
@@ -64,9 +72,13 @@ class TrinoCliIntegrationTest {
         assertEquals(0, cli.execute("check", "-f", taskFile.toString()));
 
         JsonNode report = objectMapper.readTree(reportsDir.resolve("report.json").toFile());
-        assertEquals("small_table_once", report.path("plan").path("object_class").asText());
-        assertEquals("schema -> exact diff", report.path("plan").path("selected_path").asText());
+        assertEquals("SMALL", report.path("plan").path("scale_class").asText());
         assertEquals("CONSISTENT", report.path("result").path("status").asText());
+        assertEquals("GLOBAL_CHECKSUM", report.path("result").path("proof_mode").asText());
+        assertEquals("HIGH", report.path("result").path("confidence").asText());
+        assertTrue(report.path("plan").path("signal_backend").isMissingNode());
+        assertTrue(report.path("plan").path("object_class").isMissingNode());
+        assertTrue(report.path("plan").path("selected_path").isMissingNode());
     }
 
     @Test
@@ -116,9 +128,46 @@ class TrinoCliIntegrationTest {
         assertEquals(1, checkExit);
 
         JsonNode report = objectMapper.readTree(reportsDir.resolve("report.json").toFile());
-        assertEquals("gate -> signal -> localization -> drilldown", report.path("plan").path("selected_path").asText());
-        assertEquals("trino_grouped_signal", report.path("plan").path("signal_backend").asText());
+        assertEquals("LARGE", report.path("plan").path("scale_class").asText());
+        assertTrue(report.path("plan").path("signal_backend").isMissingNode());
         assertEquals("DIFF_FOUND", report.path("result").path("status").asText());
+        assertEquals("EXACT_DIFF", report.path("result").path("proof_mode").asText());
+        assertEquals("EXACT", report.path("result").path("confidence").asText());
         assertEquals("dt=2026-03-10", report.path("result").path("suspect_slices").get(0).path("slice_key").asText());
+    }
+
+    @Test
+    void shouldPushDownRoutingSignalsForTrinoQueryMode() throws Exception {
+        TaskFileSpec spec = new TaskFileSpec();
+        spec.boundary.type = "job_finish";
+        spec.queryConnector = new TaskFileSpec.QueryConnectorSpec();
+        spec.queryConnector.type = "trino";
+        spec.queryConnector.uri = "jdbc:trino://" + trino.getHost() + ":" + trino.getMappedPort(8080);
+        spec.queryConnector.user = "test";
+        spec.source.type = "sql";
+        spec.source.query = ""
+                + "select orderkey,\n"
+                + "       orderstatus,\n"
+                + "       case when mod(orderkey, 2) = 0 then '2026-03-10' else '2026-03-11' end as dt\n"
+                + "from tpch.tiny.orders\n"
+                + "where orderkey in (1, 2, 3, 4)";
+        spec.object.columns.add("orderkey");
+        spec.object.columns.add("orderstatus");
+        spec.object.columns.add("dt");
+        spec.object.routingStrategy = "dt";
+        spec.object.estimatedRows = 200_000_000L;
+
+        try (ConnectorBundle bundle = new TrinoConnectorFactory().open(spec, spec.source)) {
+            assertTrue(bundle.getCapabilityDescriptor().supportsRoutingSignalPushdown);
+            assertNotNull(bundle.getRoutingSignalReader());
+
+            ReadRequest request = new ReadRequest();
+            request.columns.addAll(spec.object.columns);
+            List<SliceSignal> signals = bundle.getRoutingSignalReader().readRoutingSignals(request);
+
+            assertEquals(2, signals.size());
+            assertEquals("routing", signals.get(0).sliceType);
+            assertTrue(signals.get(0).sliceKey.startsWith("routing="));
+        }
     }
 }

@@ -11,6 +11,7 @@ public class CapabilityDescriptor {
     public boolean supportsMetadataStats;
     public boolean supportsSignalPushdown;
     public boolean supportsGroupedSignalPushdown;
+    public boolean supportsRoutingSignalPushdown;
     public boolean supportsNativeMetadata;
     public boolean supportsKeyedDiff = true;
     public boolean supportsKeylessMultiset = true;

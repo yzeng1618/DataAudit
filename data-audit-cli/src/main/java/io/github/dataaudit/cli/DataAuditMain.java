@@ -166,18 +166,17 @@ public class DataAuditMain implements Runnable {
     private static void printSummary(ReportModel report) throws Exception {
         System.out.println("runId=" + report.runId);
         System.out.println("status=" + report.result.status);
-        System.out.println("objectClass=" + report.plan.objectClass);
-        System.out.println("selectedPath=" + report.plan.selectedPath);
-        System.out.println("signalBackend=" + report.plan.signalBackend);
-        System.out.println("consistencyLevel=" + report.result.consistencyLevel);
-        System.out.println("verdictBasis=" + report.result.verdictBasis);
+        System.out.println("scaleClass=" + report.plan.scaleClass);
+        System.out.println("signalStrategy=" + report.plan.signalStrategy);
+        System.out.println("localizationStrategy=" + report.plan.localizationStrategy);
         System.out.println("rootCause=" + report.result.rootCause);
+        System.out.println("proofMode=" + report.result.proofMode);
+        System.out.println("confidence=" + report.result.confidence);
+        System.out.println("noKeyMode=" + report.result.noKeyMode);
+        System.out.println("fallbackReason=" + report.result.fallbackReason);
         System.out.println("suspectSlices=" + objectMapper().writeValueAsString(report.result.suspectSlices));
         System.out.println("resumeHint=" + report.result.resumeHint);
         System.out.println("planDecisionTrace=" + objectMapper().writeValueAsString(report.plan.decisionTrace));
-        System.out.println("resultDecisionTrace=" + objectMapper().writeValueAsString(report.result.decisionTrace));
-        System.out.println("dmlVerdict=" + report.result.dmlAudit.verdict);
-        System.out.println("ddlVerdict=" + report.result.ddlAudit.verdict);
     }
 
     private static int exitCode(String status) {
@@ -187,14 +186,11 @@ public class DataAuditMain implements Runnable {
         if ("DIFF_FOUND".equalsIgnoreCase(status)) {
             return 1;
         }
-        if ("INCONCLUSIVE".equalsIgnoreCase(status)) {
-            return 3;
-        }
-        if ("PARTIAL".equalsIgnoreCase(status)) {
-            return 4;
-        }
-        if ("REFUSED".equalsIgnoreCase(status)) {
+        if ("UNSTABLE_BOUNDARY".equalsIgnoreCase(status)) {
             return 5;
+        }
+        if ("EXECUTION_FAILED".equalsIgnoreCase(status)) {
+            return 4;
         }
         return 2;
     }

@@ -27,7 +27,7 @@ target:
   catalog: prod
   catalog_type: hadoop
   warehouse: hdfs:///warehouse/iceberg
-  database: dw
+  namespace: dw
   table: orders
   snapshot_id: latest
 
@@ -35,38 +35,21 @@ object:
   key:
     - order_id
   columns:
-    include:
-      - order_id
-      - status
-      - amount
-      - update_time
-      - dt
+    - order_id
+    - status
+    - amount
+    - update_time
+    - dt
+  partition_by:
+    - dt
+  estimated_rows: 5000000
 
-planner:
-  mode: metadata_first
-  hints:
-    object_class: lakehouse_object
-    prefer_metadata: true
-    partition_keys:
-      - dt
-
-normalization:
+normalize:
   timezone: Asia/Shanghai
   trim_string: true
   empty_as_null: true
   decimal_scale:
     amount: 2
 
-compare:
-  segment:
-    by:
-      - dt
-  diff:
-    max_samples: 200
-
 output:
   dir: /opt/data-audit/reports/postgres_to_iceberg_orders
-
-state:
-  backend: sqlite
-  path: /opt/data-audit/state/postgres_to_iceberg_orders.db

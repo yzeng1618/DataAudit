@@ -7,6 +7,7 @@ import io.github.dataaudit.spi.connector.ConnectorBundle;
 import io.github.dataaudit.spi.connector.ConnectorFactory;
 import io.github.dataaudit.spi.connector.MetadataReader;
 import io.github.dataaudit.spi.connector.RowStreamReader;
+import io.github.dataaudit.spi.connector.RoutingSignalReader;
 import io.github.dataaudit.spi.connector.SchemaReader;
 import io.github.dataaudit.spi.connector.SignalReader;
 import io.github.dataaudit.spi.model.BoundaryRef;
@@ -77,10 +78,10 @@ public class TrinoConnectorFactory implements ConnectorFactory {
         capabilityDescriptor.supportsSnapshotBoundary = false;
         capabilityDescriptor.supportsSignalPushdown = true;
         capabilityDescriptor.supportsGroupedSignalPushdown = true;
+        capabilityDescriptor.supportsRoutingSignalPushdown = true;
         capabilityDescriptor.supportsNativeMetadata = false;
         capabilityDescriptor.sourceLoadPolicy = "balanced";
-        capabilityDescriptor.attributes.put("signal_backend", "trino_grouped_signal");
-        return new ConnectorBundle(capabilityDescriptor, endpoint, endpoint, endpoint, endpoint, null, dataSource::close);
+        return new ConnectorBundle(capabilityDescriptor, endpoint, endpoint, endpoint, endpoint, endpoint, null, dataSource::close);
     }
 
     private String buildJdbcUrl(TaskFileSpec spec, TaskFileSpec.EndpointSpec endpointSpec) {
@@ -114,7 +115,7 @@ public class TrinoConnectorFactory implements ConnectorFactory {
         return url.toString();
     }
 
-    static final class TrinoEndpoint implements SchemaReader, SignalReader, RowStreamReader, MetadataReader {
+    static final class TrinoEndpoint implements SchemaReader, SignalReader, RoutingSignalReader, RowStreamReader, MetadataReader {
         private static final Logger LOG = LoggerFactory.getLogger(TrinoEndpoint.class);
 
         private final TaskFileSpec spec;
@@ -176,28 +177,32 @@ public class TrinoConnectorFactory implements ConnectorFactory {
 
         @Override
         public List<SliceSignal> readSliceSignals(String sliceColumn, ReadRequest request) throws Exception {
+            String physicalSliceColumn = resolvePhysicalColumn(sliceColumn);
             if (requiresNormalizedSignal()) {
-                return readNormalizedSliceSignals(sliceColumn, request);
+                return readNormalizedSignals(sliceColumn, physicalSliceColumn, request, sliceColumn);
             }
             List<String> columns = projectionColumns(request);
-            String physicalSliceColumn = resolvePhysicalColumn(sliceColumn);
             String sql = "select " + quoteIdentifier(physicalSliceColumn) + " as slice_value, count(*) as row_count, "
                     + checksumExpr(columns) + " as checksum from " + baseSql()
                     + " where " + quoteIdentifier(physicalSliceColumn) + " is not null group by 1 order by 1";
-            List<SliceSignal> signals = new ArrayList<>();
-            try (Connection connection = dataSource.getConnection();
-                 PreparedStatement statement = connection.prepareStatement(sql);
-                 ResultSet resultSet = statement.executeQuery()) {
-                while (resultSet.next()) {
-                    SliceSignal signal = new SliceSignal();
-                    signal.sliceKey = sliceColumn + "=" + resultSet.getString("slice_value");
-                    signal.sliceType = sliceColumn;
-                    signal.rowCount = resultSet.getLong("row_count");
-                    signal.checksum = resultSet.getString("checksum");
-                    signals.add(signal);
-                }
+            return executeSignalQuery(sql, sliceColumn, sliceColumn, "slice_value");
+        }
+
+        @Override
+        public List<SliceSignal> readRoutingSignals(ReadRequest request) throws Exception {
+            String routingColumn = resolveRoutingColumn();
+            if (routingColumn == null) {
+                return new ArrayList<>();
             }
-            return signals;
+            String physicalRoutingColumn = resolvePhysicalColumn(routingColumn);
+            if (requiresNormalizedSignal()) {
+                return readNormalizedSignals(routingColumn, physicalRoutingColumn, request, "routing");
+            }
+            List<String> columns = projectionColumns(request);
+            String sql = "select " + quoteIdentifier(physicalRoutingColumn) + " as routing_value, count(*) as row_count, "
+                    + checksumExpr(columns) + " as checksum from " + baseSql()
+                    + " where " + quoteIdentifier(physicalRoutingColumn) + " is not null group by 1 order by 1";
+            return executeSignalQuery(sql, "routing", "routing", "routing_value");
         }
 
         @Override
@@ -415,16 +420,19 @@ public class TrinoConnectorFactory implements ConnectorFactory {
             return metrics;
         }
 
-        private List<SliceSignal> readNormalizedSliceSignals(String sliceColumn, ReadRequest request) throws Exception {
+        private List<SliceSignal> readNormalizedSignals(String requestedColumn,
+                                                        String physicalColumn,
+                                                        ReadRequest request,
+                                                        String signalType) throws Exception {
             List<SliceSignal> signals = new ArrayList<>();
-            for (String value : listSliceValues(sliceColumn)) {
+            for (String value : listSliceValues(physicalColumn)) {
                 ReadRequest sliceRequest = cloneRequest(request);
-                sliceRequest.sliceColumn = sliceColumn;
+                sliceRequest.sliceColumn = requestedColumn;
                 sliceRequest.sliceValue = value;
                 SummaryMetrics summary = readNormalizedSummary(sliceRequest);
                 SliceSignal signal = new SliceSignal();
-                signal.sliceKey = sliceColumn + "=" + value;
-                signal.sliceType = sliceColumn;
+                signal.sliceKey = signalType + "=" + value;
+                signal.sliceType = signalType;
                 signal.rowCount = summary.rowCount;
                 signal.checksum = summary.checksum;
                 signals.add(signal);
@@ -432,8 +440,7 @@ public class TrinoConnectorFactory implements ConnectorFactory {
             return signals;
         }
 
-        private List<String> listSliceValues(String sliceColumn) throws Exception {
-            String physicalSliceColumn = resolvePhysicalColumn(sliceColumn);
+        private List<String> listSliceValues(String physicalSliceColumn) throws Exception {
             String sql = "select distinct " + quoteIdentifier(physicalSliceColumn) + " as slice_value from " + baseSql()
                     + " where " + quoteIdentifier(physicalSliceColumn) + " is not null order by 1";
             List<String> values = new ArrayList<>();
@@ -445,6 +452,26 @@ public class TrinoConnectorFactory implements ConnectorFactory {
                 }
             }
             return values;
+        }
+
+        private List<SliceSignal> executeSignalQuery(String sql,
+                                                     String sliceType,
+                                                     String keyPrefix,
+                                                     String valueColumn) throws Exception {
+            List<SliceSignal> signals = new ArrayList<>();
+            try (Connection connection = dataSource.getConnection();
+                 PreparedStatement statement = connection.prepareStatement(sql);
+                 ResultSet resultSet = statement.executeQuery()) {
+                while (resultSet.next()) {
+                    SliceSignal signal = new SliceSignal();
+                    signal.sliceKey = keyPrefix + "=" + resultSet.getString(valueColumn);
+                    signal.sliceType = sliceType;
+                    signal.rowCount = resultSet.getLong("row_count");
+                    signal.checksum = resultSet.getString("checksum");
+                    signals.add(signal);
+                }
+            }
+            return signals;
         }
 
         private ReadRequest cloneRequest(ReadRequest request) {
@@ -509,6 +536,22 @@ public class TrinoConnectorFactory implements ConnectorFactory {
                 columns.add(column.name);
             }
             return columns;
+        }
+
+        private String resolveRoutingColumn() {
+            if (spec.object == null) {
+                return null;
+            }
+            if (spec.object.routingStrategy != null && !spec.object.routingStrategy.trim().isEmpty()) {
+                return spec.object.routingStrategy.trim();
+            }
+            if (spec.object.partitionBy != null && !spec.object.partitionBy.isEmpty()) {
+                return spec.object.partitionBy.get(0);
+            }
+            if (spec.object.groupBy != null && !spec.object.groupBy.isEmpty()) {
+                return spec.object.groupBy.get(0);
+            }
+            return null;
         }
 
         private String resolveColumn(Set<String> availableColumns, String requestedColumn) {

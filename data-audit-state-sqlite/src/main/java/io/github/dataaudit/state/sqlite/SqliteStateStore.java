@@ -36,7 +36,7 @@ public class SqliteStateStore implements StateStore {
         jdbcUrl = "jdbc:sqlite:" + databasePath.toAbsolutePath();
         try (Connection connection = getConnection();
              Statement statement = connection.createStatement()) {
-            statement.executeUpdate("create table if not exists run_record (run_id text primary key, task_name text, boundary_fingerprint text, selected_path text, status text, report_json_path text, report_html_path text, started_at text, finished_at text)");
+            statement.executeUpdate("create table if not exists run_record (run_id text primary key, task_name text, boundary_fingerprint text, status text, report_json_path text, report_html_path text, started_at text, finished_at text)");
             statement.executeUpdate("create table if not exists slice_record (run_id text, slice_key text, status text, resume_token text)");
         }
     }
@@ -47,20 +47,18 @@ public class SqliteStateStore implements StateStore {
         OffsetDateTime now = OffsetDateTime.now();
         try (Connection connection = getConnection();
              PreparedStatement statement = connection.prepareStatement(
-                     "insert into run_record(run_id, task_name, boundary_fingerprint, selected_path, status, started_at) values(?,?,?,?,?,?)")) {
+                     "insert into run_record(run_id, task_name, boundary_fingerprint, status, started_at) values(?,?,?,?,?)")) {
             statement.setString(1, runId);
             statement.setString(2, taskName);
             statement.setString(3, boundaryFingerprint);
-            statement.setString(4, plan.selectedPath);
-            statement.setString(5, "RUNNING");
-            statement.setString(6, now.toString());
+            statement.setString(4, "RUNNING");
+            statement.setString(5, now.toString());
             statement.executeUpdate();
         }
         RunState state = new RunState();
         state.runId = runId;
         state.taskName = taskName;
         state.boundaryFingerprint = boundaryFingerprint;
-        state.selectedPath = plan.selectedPath;
         state.status = "RUNNING";
         state.startedAt = now;
         return state;
@@ -140,7 +138,6 @@ public class SqliteStateStore implements StateStore {
         state.runId = resultSet.getString("run_id");
         state.taskName = resultSet.getString("task_name");
         state.boundaryFingerprint = resultSet.getString("boundary_fingerprint");
-        state.selectedPath = resultSet.getString("selected_path");
         state.status = resultSet.getString("status");
         String startedAt = resultSet.getString("started_at");
         String finishedAt = resultSet.getString("finished_at");

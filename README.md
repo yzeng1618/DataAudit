@@ -14,27 +14,29 @@
 - 是漏数、重复、删除未生效，还是 DDL / schema evolution 引发的误报
 - 下次复查时，能不能只重查受影响范围
 
-## v1 Trino-First
+## v1 Scale-Driven Pipeline
 
-当前 v1 配置已经切换到 `task / boundary / query_connector / source / target / object / normalize / semantics / output`。
+当前 v1 配置已经切换到 `task / boundary / query_connector / source / target / object / planner / normalize / semantics / output`。
 
 - `type: trino` 是推荐写法，表示对象通过 Trino 查询平面访问
 - `type: sql` 仍可用，但在 v1 中只作为 `type: trino` 的兼容别名
 - `type: jdbc` 作为直连 fallback
 - `type: iceberg` 保留 snapshot/native metadata 真值路径
+- 默认执行策略已经变成 `small / large / xlarge` 的 scale-driven 流程
+- 报告会显式输出 `proof_mode / confidence / no_key_mode / fallback_reason`
 
 `type: trino` 适用于所有能通过 Trino catalog 暴露的对象，例如 MySQL / PostgreSQL / Oracle / Hive / Iceberg / Hudi / Delta / Paimon 的结果面访问。
 如果需要 `snapshot` 真值、manifest/schema 元数据或 snapshot-pinned 读取，仍应使用 `type: iceberg` 走原生路径。
 
 迁移说明见 [docs/migration-v1.md](docs/migration-v1.md)。
-新模板见 `templates/small-table-trino.yaml`、`templates/partitioned-table-trino.yaml`、`templates/jdbc-fallback.yaml`、`templates/iceberg-snapshot-native.yaml`。
+新模板见 `templates/small-table-trino.yaml`、`templates/partitioned-table-trino.yaml`、`templates/jdbc-fallback.yaml`、`templates/iceberg-snapshot-native.yaml`、`templates/large-table-nokey.yaml`、`templates/xlarge-sampling-fallback.yaml`。
 
 ## 核心原则
 
 1. 不做同步中校验，只做边界后的结果审计。
 2. 不做第二个 dataCompare，而是做大数据 / 湖仓场景的 snapshot-aware、DDL-aware CLI。
-3. 默认路径不是全表 hash，而是由 planner 在 `boundary metadata -> schema -> summary -> segment -> diff` 中自动选择最小必要路径。
-4. `exact diff` 始终是最终裁决；`hash / digest / checksum` 只负责提速和缩小范围。
+3. 默认路径不是全表 hash，而是由 planner 在 `global signal -> localization -> exact/sample diff` 中自动选择最小必要路径。
+4. `exact diff` 是最强证明；`grouped checksum / routing digest / XOR checksum / sampling` 负责缩圈和给出分级置信度。
 
 ## 产品定位
 
@@ -44,13 +46,13 @@ MVP 阶段它是单进程、单命令、单次任务运行的 CLI。未来可以
 
 ## 适用场景
 
-`data-audit` 统一支持三类一等对象，兼容传统小表单次比对，同时覆盖大表、分区表与湖仓对象：
+`data-audit` 统一支持三类规模档位，覆盖小表、大表和超大表对象：
 
-| 对象类 | 典型 source / target | 典型边界 | 默认路径 | 主要证据 |
+| 规模档位 | 典型 source / target | 典型边界 | 默认路径 | 主要证据 |
 | --- | --- | --- | --- | --- |
-| `small_table_once` | JDBC 表、查询结果、导出文件 | `job_finish` | `schema -> exact diff` | row diff、sample diff |
-| `partitioned_big_table` | 大表、分区表、按时间或业务键切片的大对象 | `job_finish` / `partition` / `time_window` | `schema -> summary -> segment -> diff` | suspect segments、partition summary |
-| `lakehouse_object` | Iceberg / Hudi / Delta / Paimon | `snapshot` / `version` / `instant` / `time_window` | `boundary metadata -> schema -> summary -> segment -> diff` | snapshot info、manifest/timeline、suspect slices |
+| `small` | JDBC 表、查询结果、Trino 小结果集 | `job_finish` | `global row_count + global checksum -> exact diff(on mismatch)` | row diff、sample diff |
+| `large` | 大表、分区表、按时间或业务键切片的大对象 | `job_finish` / `partition` / `time_window` | `global row_count + grouped checksum -> localization -> exact diff` | suspect slices、grouped signal |
+| `xlarge` | 超大表、湖仓对象、超大结果集 | `snapshot` / `version` / `instant` / `time_window` | `metadata / routing digest -> localization -> exact diff or sampling` | snapshot info、routing digest、suspect slices |
 
 兼容传统小表单次比对，指的是：
 
@@ -77,9 +79,9 @@ MVP 阶段它是单进程、单命令、单次任务运行的 CLI。未来可以
 
 默认路径由 planner 自动决定，而不是由用户手工拼算法：
 
-- 小表：优先走 `schema -> exact diff`
-- 大表 / 分区表：优先走 `schema -> summary -> segment -> diff`
-- 湖仓对象：优先走 `boundary metadata -> schema -> summary -> segment -> diff`
+- 小表：优先走 `global row_count + global checksum`，一致时直接结束
+- 大表 / 分区表：优先走 `global row_count + grouped checksum -> localization -> exact diff`
+- 超大表：优先走 `metadata / routing digest -> localization -> exact diff or sampling`
 - 无稳定边界：直接拒绝执行
 
 planner 的职责不是“选算法炫技”，而是根据对象能力、边界稳定性和预估成本，选择最小必要、可解释、可复查的审计路径。
@@ -139,7 +141,7 @@ source:
 ```bash
 data-audit check -f task.yaml
 data-audit plan  -f task.yaml
-data-audit diff  -f task.yaml --segment dt=2026-03-10
+data-audit diff  -f task.yaml --slice dt=2026-03-10
 data-audit report show ./reports/orders_reconcile/report.json
 ```
 
@@ -152,7 +154,7 @@ data-audit report show ./reports/orders_reconcile/report.json
 
 ## 配置示例
 
-下面是一个带 planner hints 的配置示例：
+下面是一个当前可运行的配置示例：
 
 ```yaml
 task:
@@ -181,37 +183,25 @@ target:
 object:
   key:
     - order_id
+  columns:
+    - order_id
+    - status
+    - amount
+    - update_time
+    - dt
+  estimated_rows: 5000000
+  partition_by:
+    - dt
 
 planner:
-  mode: auto
-  hints:
-    object_class: auto
-    estimated_rows: 5000000
-    partition_keys:
-      - dt
-    max_exact_rows: 100000
-    force_exact_diff: false
-    prefer_metadata: true
+  scale_override: large
 
-compare:
-  levels:
-    - schema
-    - summary
-    - segment
-    - diff
-
-dml:
-  update: latest_state
-
-ddl:
-  mode: compatible
+normalize:
+  decimal_scale:
+    amount: 2
 
 output:
   dir: ./reports/orders_reconcile
-
-state:
-  backend: sqlite
-  path: ./.recon/state.db
 ```
 
 完整设计、全量配置样例和架构细节见 [docs/design.md](docs/design.md)。
@@ -237,17 +227,17 @@ PowerShell 会话里执行：
 .\scripts\verify-local-sqlite.ps1
 ```
 
-脚本会自动跑两类场景：
+脚本会自动覆盖当前主链场景：
 
-- `consistent_small`：小表一致，验证 `schema -> exact diff`
-- `partition_mismatch`：分区数据异常，验证 `schema -> summary -> segment -> diff`
-
-当前默认场景矩阵还包括：
-
-- `small_diff`：小表差异，验证 exact diff 下的差异裁决
-- `keyless_multiset`：无主键结果集，验证 multiset diff
-- `schema_mismatch`：schema 不一致，验证 schema-aware 归因
-- `unstable_snapshot_jdbc`：JDBC 上的 snapshot 边界，验证拒绝执行
+- `consistent_small`：小表一致，验证 `GLOBAL_CHECKSUM`
+- `small_diff`：小表差异，验证 `EXACT_DIFF`
+- `partition_mismatch`：大表分片异常，验证 `grouped checksum -> exact diff`
+- `bucket_mismatch`：大表按 key hash bucket 缩圈
+- `keyless_large_consistent`：无 key 大表一致，验证 `XOR_CHECKSUM_PLUS_SAMPLE`
+- `keyless_large_inconclusive`：无 key 大表异常，验证 `XOR_CHECKSUM_PLUS_SAMPLE`
+- `unstable_snapshot_jdbc`：边界不稳定时拒绝执行
+- `ddl_rename_compatible`：rename mapping 后的一致性校验
+- `delete_hard_delete_mismatch`：行数漂移归因为 `row_count_mismatch`
 
 输出产物会写到 `.tmp\verify-local\` 下。
 
@@ -271,28 +261,28 @@ PowerShell 会话里执行：
 
 - `postgres_simulated_jdbc`
   - 结果：`CONSISTENT`
-  - 路径：`schema -> exact diff`
+  - 路径：`global row_count + global checksum`
   - 说明：无 Docker 环境下用 `dialect: postgres` 走真实 CLI/JDBC 流程，底层由本地 SQLite 承载数据
 - `hive_jdbc_partitioned`
   - 结果：`DIFF_FOUND`
-  - 路径：`schema -> summary -> segment -> diff`
+  - 路径：`global row_count + grouped checksum -> exact diff`
   - 已定位：`dt=2026-03-10`
 - `doris_jdbc_result_diff`
   - 结果：`DIFF_FOUND`
-  - 路径：`schema -> exact diff`
-  - 根因：`latest_state_mismatch`
+  - 路径：`global row_count + global checksum -> exact diff`
+  - 根因：`value_mismatch`
 - `jdbc_to_iceberg_consistent`
   - 结果：`CONSISTENT`
-  - 路径：`boundary metadata -> schema -> summary -> segment -> diff`
+  - 路径：`global row_count + grouped checksum`
   - 说明：JDBC 源端与 Iceberg 目标端的真实一致性校验
 - `jdbc_to_iceberg_diff`
   - 结果：`DIFF_FOUND`
-  - 路径：`boundary metadata -> schema -> summary -> segment -> diff`
-  - 根因：`latest_state_mismatch`
+  - 路径：`global row_count + grouped checksum -> exact diff`
+  - 根因：`value_mismatch`
 - `iceberg_to_jdbc_partitioned`
   - 结果：`DIFF_FOUND`
-  - 路径：`boundary metadata -> schema -> summary -> segment -> diff`
-  - 根因：`latest_state_mismatch`
+  - 路径：`global row_count + grouped checksum -> exact diff`
+  - 根因：`value_mismatch`
   - 已定位：`dt=2026-03-10`
 
 脚本执行成功后，验证产物会落到：
@@ -304,7 +294,7 @@ PowerShell 会话里执行：
 - `report.json`
 - `report.html`
 - `manifest.json`
-- `suspect_segments.csv`
+- `suspect_slices.csv`
 - `row_diff_sample.csv`
 - `state.db`
 
@@ -330,7 +320,7 @@ PowerShell 会话里执行：
 默认路径：
 
 ```text
-schema -> exact diff
+global row_count + global checksum -> exact diff(on mismatch)
 ```
 
 ### 2. 大表 / 分区表结果校验
@@ -340,7 +330,7 @@ schema -> exact diff
 默认路径：
 
 ```text
-schema -> summary -> segment -> diff
+global row_count + grouped checksum -> localization -> exact diff
 ```
 
 ### 3. 湖仓 snapshot / version / instant 校验
@@ -350,7 +340,7 @@ schema -> summary -> segment -> diff
 默认路径：
 
 ```text
-boundary metadata -> schema -> summary -> segment -> diff
+metadata / routing digest -> localization -> exact diff or sampling
 ```
 
 推荐直接从 `templates/` 下的样例起步：
@@ -449,10 +439,10 @@ tail -f ./logs/check.log
 - `report.json`
 - `report.html`
 - `manifest.json`
-- `suspect_segments.csv`
+- `suspect_slices.csv`
 - `row_diff_sample.csv`
 
-如果 `state.backend=sqlite`，还会在 `state.path` 生成本地状态文件。
+运行状态会默认写到 `output.dir/state.db`。
 
 6. 查看结果
 
@@ -460,12 +450,12 @@ tail -f ./logs/check.log
 java -jar ./bin/data-audit.jar report show ./reports/<task-name>/report.json
 ```
 
-7. 对可疑 segment 继续下钻
+7. 对可疑 slice 继续下钻
 
 如果 `report.json` 里有 `result.resume_hint`，可以直接执行类似命令：
 
 ```bash
-java -jar ./bin/data-audit.jar diff -f ./tasks/task.yaml --segment dt=2026-03-10
+java -jar ./bin/data-audit.jar diff -f ./tasks/task.yaml --slice dt=2026-03-10
 ```
 
 #### 4.2 单容器部署
@@ -509,7 +499,7 @@ docker run --rm \
 1. `plan`
 2. `check`
 3. `report show`
-4. 必要时 `diff --segment`
+4. 必要时 `diff --slice`
 
 推荐先从当前已经稳定的组合开始：
 
@@ -518,10 +508,10 @@ docker run --rm \
 
 对性能的当前建议是：
 
-- 小表优先走 `schema -> exact diff`
-- 大表 / 分区表优先走 `summary -> segment -> diff`
-- 不要把唯一键放进 `partition_keys` 或 `compare.segment.by`
-- 如果只比较少数列，显式配置 `object.columns.include` 或直接使用 `query:`
+- 小表优先走 `global row_count + global checksum`
+- 大表 / 分区表优先走 `grouped checksum -> localization -> exact diff`
+- 超大表优先走 `metadata / routing digest -> localization`
+- 如果只比较少数列，显式配置 `object.columns` 或直接使用 `query:`
 
 #### 4.4 服务器上的真实示例 `task.yaml`
 
@@ -678,29 +668,25 @@ target:
   catalog: prod
   catalog_type: hadoop
   warehouse: hdfs:///warehouse/iceberg
-  database: dw
+  namespace: dw
   table: orders
   snapshot_id: latest
 
-planner:
-  mode: metadata_first
-  hints:
-    object_class: lakehouse_object
-    prefer_metadata: true
-    partition_keys:
-      - dt
-
-compare:
-  segment:
-    by:
-      - dt
+object:
+  key:
+    - order_id
+  columns:
+    - order_id
+    - status
+    - amount
+    - update_time
+    - dt
+  partition_by:
+    - dt
+  estimated_rows: 5000000
 
 output:
   dir: /opt/data-audit/reports/postgres_to_iceberg_orders
-
-state:
-  backend: sqlite
-  path: /opt/data-audit/state/postgres_to_iceberg_orders.db
 ```
 
 #### 4.5 调度器接入示例
@@ -724,19 +710,23 @@ cron 示例：
 
 - `report.json`
 - `report.html`
-- `suspect_segments.csv`
+- `suspect_slices.csv`
 - `row_diff_sample.csv`
 - `manifest.json`
 
 `report.json` 建议至少包含以下字段：
 
-- `plan.object_class`
-- `plan.selected_path`
-- `plan.executed_levels`
+- `plan.scale_class`
+- `plan.signal_strategy`
+- `plan.localization_strategy`
 - `plan.boundary`
 - `plan.reason`
 - `result.root_cause`
-- `result.suspect_segments`
+- `result.proof_mode`
+- `result.confidence`
+- `result.no_key_mode`
+- `result.fallback_reason`
+- `result.suspect_slices`
 - `result.resume_hint`
 
 `report show` 的目标不只是展示结果，还要回答两件事：
@@ -749,9 +739,8 @@ cron 示例：
 - `0`：一致
 - `1`：发现差异
 - `2`：配置错误
-- `3`：连接或读取失败
-- `4`：只完成部分 segment
-- `5`：边界不稳定，拒绝执行
+- `4`：执行失败
+- `5`：边界不稳定
 
 ## 部署与接入
 

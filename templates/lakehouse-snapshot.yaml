@@ -21,21 +21,22 @@ source:
 target:
   type: iceberg
   catalog: local
-  catalogType: hadoop
+  catalog_type: hadoop
   warehouse: file:///tmp/warehouse
-  database: dw
+  namespace: dw
   table: orders
-  snapshotId: latest
+  snapshot_id: latest
 
-planner:
-  mode: metadata_first
-  hints:
-    object_class: lakehouse_object
-    prefer_metadata: true
+object:
+  key:
+    - order_id
+  columns:
+    - order_id
+    - amount
+    - status
+    - dt
+  estimated_rows: 200000000
+  routing_strategy: dt
 
 output:
   dir: ./reports/lakehouse_snapshot
-
-state:
-  backend: sqlite
-  path: ./.recon/state.db

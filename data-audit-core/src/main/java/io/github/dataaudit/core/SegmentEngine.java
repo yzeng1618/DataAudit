@@ -1,6 +1,7 @@
 package io.github.dataaudit.core;
 
 import io.github.dataaudit.spi.connector.RowStreamReader;
+import io.github.dataaudit.spi.connector.RoutingSignalReader;
 import io.github.dataaudit.spi.connector.SignalReader;
 import io.github.dataaudit.spi.model.ReadRequest;
 import io.github.dataaudit.spi.model.SliceDescriptor;
@@ -14,7 +15,7 @@ import java.util.List;
 import java.util.Map;
 
 public class SegmentEngine {
-    private static final long MAX_EXACT_ROWS = PlanningService.MAX_EXACT_ROWS;
+    private static final long MAX_EXACT_ROWS = 100_000L;
     static final int DEFAULT_BUCKET_COUNT = 16;
     static final String VIRTUAL_BUCKET_PREFIX = "bucket=";
 
@@ -37,26 +38,20 @@ public class SegmentEngine {
         }
 
         ReadRequest baseRequest = ReadRequestFactory.baseRequest(spec);
-        List<SliceSignal> sourceSignals = source.readSliceSignals(sliceColumn, baseRequest);
-        List<SliceSignal> targetSignals = target.readSliceSignals(sliceColumn, baseRequest);
+        return findSignalMismatches(
+                source.readSliceSignals(sliceColumn, baseRequest),
+                target.readSliceSignals(sliceColumn, baseRequest)
+        );
+    }
 
-        Map<String, SliceSignal> merged = new LinkedHashMap<>();
-        for (SliceSignal signal : sourceSignals) {
-            merged.put(signal.sliceKey, signal);
-        }
-
-        List<SliceDescriptor> suspects = new ArrayList<>();
-        for (SliceSignal targetSignal : targetSignals) {
-            SliceSignal sourceSignal = merged.remove(targetSignal.sliceKey);
-            if (!equivalent(sourceSignal, targetSignal)) {
-                suspects.add(toDescriptor(sourceSignal, targetSignal));
-            }
-        }
-
-        for (SliceSignal sourceSignal : merged.values()) {
-            suspects.add(toDescriptor(sourceSignal, null));
-        }
-        return suspects;
+    public List<SliceDescriptor> findSuspectRoutingSignals(RoutingSignalReader source,
+                                                           RoutingSignalReader target,
+                                                           TaskFileSpec spec) throws Exception {
+        ReadRequest baseRequest = ReadRequestFactory.baseRequest(spec);
+        return findSignalMismatches(
+                source.readRoutingSignals(baseRequest),
+                target.readRoutingSignals(baseRequest)
+        );
     }
 
     public String resolveSliceColumn(TaskFileSpec spec) {
@@ -90,7 +85,7 @@ public class SegmentEngine {
             if (!summaryEngine.equivalent(sourceSummary, targetSummary)) {
                 SliceDescriptor descriptor = new SliceDescriptor();
                 descriptor.sliceKey = VIRTUAL_BUCKET_PREFIX + bucketId + "/" + bucketCount;
-                descriptor.sliceType = "virtual_bucket";
+                descriptor.sliceType = "key_hash_bucket";
                 descriptor.rowEstimate = Math.max(sourceSummary.rowCount, targetSummary.rowCount);
                 descriptor.drilldownable = descriptor.rowEstimate <= MAX_EXACT_ROWS;
                 descriptor.reason = "bucket_signal_mismatch";
@@ -117,6 +112,27 @@ public class SegmentEngine {
         descriptor.drilldownable = rowEstimate <= MAX_EXACT_ROWS;
         descriptor.reason = "signal_mismatch";
         return descriptor;
+    }
+
+    private List<SliceDescriptor> findSignalMismatches(List<SliceSignal> sourceSignals,
+                                                       List<SliceSignal> targetSignals) {
+        Map<String, SliceSignal> merged = new LinkedHashMap<>();
+        for (SliceSignal signal : sourceSignals) {
+            merged.put(signal.sliceKey, signal);
+        }
+
+        List<SliceDescriptor> suspects = new ArrayList<>();
+        for (SliceSignal targetSignal : targetSignals) {
+            SliceSignal sourceSignal = merged.remove(targetSignal.sliceKey);
+            if (!equivalent(sourceSignal, targetSignal)) {
+                suspects.add(toDescriptor(sourceSignal, targetSignal));
+            }
+        }
+
+        for (SliceSignal sourceSignal : merged.values()) {
+            suspects.add(toDescriptor(sourceSignal, null));
+        }
+        return suspects;
     }
 
     private boolean hasKey(TaskFileSpec spec) {

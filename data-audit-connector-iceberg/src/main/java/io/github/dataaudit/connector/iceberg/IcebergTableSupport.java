@@ -137,6 +137,28 @@ final class IcebergTableSupport {
         return schemaModel;
     }
 
+    String resolveRoutingColumn(TaskFileSpec spec) {
+        if (spec != null && spec.object != null) {
+            if (spec.object.routingStrategy != null && !spec.object.routingStrategy.trim().isEmpty()) {
+                return spec.object.routingStrategy.trim();
+            }
+            if (spec.object.partitionBy != null && !spec.object.partitionBy.isEmpty()) {
+                return spec.object.partitionBy.get(0);
+            }
+            if (spec.object.groupBy != null && !spec.object.groupBy.isEmpty()) {
+                return spec.object.groupBy.get(0);
+            }
+        }
+
+        PartitionSpec partitionSpec = loadTable().spec();
+        if (partitionSpec == null || partitionSpec.fields().isEmpty()) {
+            return null;
+        }
+        int sourceId = partitionSpec.fields().get(0).sourceId();
+        Types.NestedField field = loadTable().schema().findField(sourceId);
+        return field == null ? null : field.name();
+    }
+
     private List<SliceDescriptor> readManifestHints(Table table, Snapshot snapshot) {
         List<SliceDescriptor> hints = new ArrayList<>();
         if (snapshot == null) {
@@ -146,7 +168,7 @@ final class IcebergTableSupport {
         if (manifests == null || manifests.isEmpty()) {
             SliceDescriptor descriptor = new SliceDescriptor();
             descriptor.sliceKey = "snapshot=" + snapshot.snapshotId();
-            descriptor.sliceType = "metadata_hint";
+            descriptor.sliceType = "metadata_stats_hint";
             descriptor.drilldownable = false;
             descriptor.reason = "iceberg_snapshot_hint";
             hints.add(descriptor);
@@ -157,7 +179,7 @@ final class IcebergTableSupport {
         for (ManifestFile manifest : manifests) {
             SliceDescriptor descriptor = new SliceDescriptor();
             descriptor.sliceKey = "manifest=" + index;
-            descriptor.sliceType = "metadata_hint";
+            descriptor.sliceType = "metadata_stats_hint";
             descriptor.drilldownable = false;
             descriptor.reason = "iceberg_manifest_hint";
             descriptor.rowEstimate = manifest.addedRowsCount();
