@@ -69,9 +69,56 @@ When the user already has a DataAudit task YAML, the AI layer should be able to 
 
 The AI planner should treat live profile data and explicit config as higher-quality evidence than name-only inference.
 
-## 4. P0-1: AI-Native Audit Strategy Planner
+## 4. AI Participation Depth
 
-### 4.1 Input
+The P0 modules must not degrade into rule checks plus static templates. The intended split is:
+
+| Module | Weak design to avoid | Target AI involvement |
+| --- | --- | --- |
+| P0-1 AI audit strategy planner | `if/else` based only on table size, key, and partition fields | LLM identifies field semantics, risk fields, verification metrics, execution order, and historical-case-informed checks |
+| P0-2 RAG-enhanced root-cause analyzer | Count mismatch maps directly to a generic possible cause | AI extracts anomaly features, retrieves similar cases, reads logs and metrics, ranks hypotheses, and builds evidence chains |
+| P0-3 Multi-role report generator | Fill JSON fields into Markdown templates | AI rewrites the same evidence for technical, acceptance, and management audiences, while preserving deterministic status |
+
+The product principle is:
+
+```text
+deterministic audit engines provide accuracy
+AI Copilot provides intelligence, context, and delivery clarity
+```
+
+AI should participate in audit decision support, not deterministic judgment.
+
+## 5. Trust Boundary
+
+DataAudit's core value is trust. AI must not answer questions such as:
+
+- Are these two tables consistent?
+- Can this partition pass acceptance?
+- Are these 200 differences normal?
+
+Those answers must come from deterministic evidence:
+
+- `row_count`
+- `checksum`
+- `diff`
+- `partition stats`
+- `bucket diff`
+- deterministic SQL metrics
+
+The reason is practical, not philosophical. LLMs may invent fields, misunderstand SQL semantics, miss boundary conditions, turn hypotheses into conclusions, or produce non-repeatable answers.
+
+The correct boundary is:
+
+| Area | Owner |
+| --- | --- |
+| SQL execution, metric collection, checksums, diffs, final status | Deterministic DataAudit engine |
+| Strategy recommendation, field semantics, risk discovery, anomaly explanation, knowledge retrieval, next checks, role-specific reports | AI Copilot |
+
+This boundary should be visible in every output schema. AI outputs use `confidence` as hypothesis confidence, while DataAudit outputs use `proof_mode` and deterministic `confidence` as audit evidence strength.
+
+## 6. P0-1: AI-Native Audit Strategy Planner
+
+### 6.1 Input
 
 The planner input is `table_profile.json`. It should support more than static schema:
 
@@ -91,7 +138,7 @@ The planner input is `table_profile.json`. It should support more than static sc
 
 The input should allow missing sections. Missing data must be surfaced in `missing_information`, not silently ignored.
 
-### 4.2 Profile Builder and Config Fallback
+### 6.2 Profile Builder and Config Fallback
 
 Alpha should support two profile creation modes:
 
@@ -106,7 +153,7 @@ The fallback direction is config-backed, not rule-only:
 - If only field names are available, AI may infer semantics but must lower confidence and list missing statistics or samples.
 - If LLM output omits mandatory safe checks, guardrails insert global `row_count` and checksum steps from deterministic DataAudit defaults.
 
-### 4.3 AI Responsibilities
+### 6.3 AI Responsibilities
 
 The LLM participates in strategy planning by making these judgments:
 
@@ -128,7 +175,51 @@ Examples:
 - `create_time` and `update_time` should receive min/max and timezone boundary checks.
 - `payload`, `extra_info`, `properties`, `json`, `variant`, and `map` fields should receive semi-structured checks such as key existence, schema drift, null or empty object ratio, and normalized JSON hash.
 
-### 4.4 Rule and Schema Guardrails
+### 6.4 Verification Metric Recommendations
+
+The planner should recommend field-aware deterministic metrics, not only global row count and checksum.
+
+| Field category | Recommended checks |
+| --- | --- |
+| Amount or metric fields | `SUM(field)`, `MIN(field)`, `MAX(field)`, decimal scale and precision checks |
+| Enum or status fields | `GROUP BY field COUNT(*)`, top value distribution comparison, unexpected enum value detection |
+| Time fields | `MIN(field)`, `MAX(field)`, timezone offset checks, incremental boundary checks |
+| Partition fields | partition row count, partition checksum, missing or extra partition detection |
+| Text fields | null rate, empty string rate, length distribution, optional normalized checksum |
+| JSON, Variant, Map, or semi-structured fields | key count distribution, required path existence, schema drift, null or empty object ratio, normalized JSON hash |
+| Candidate business keys | distinct count, duplicate detection, bucket diff, exact diff key selection |
+
+For example, if the profile contains:
+
+```text
+extra_info variant
+payload json
+properties map
+```
+
+The AI planner should recommend:
+
+- JSON key count distribution checks.
+- Critical path existence checks when sample paths or config paths are available.
+- Schema drift checks between source and target.
+- Null and empty object ratio checks.
+- Normalized JSON hash checks for deterministic comparison.
+
+### 6.5 Knowledge-Enhanced Planning
+
+RAG should influence the strategy before execution. Historical cases should be retrieved from source/target type, write mode, field types, and symptoms in the table profile.
+
+Examples:
+
+- Oracle `decimal(20,0)` or `number` to lakehouse decimal mapping should increase the priority of decimal precision checks.
+- Oracle, MySQL, or PostgreSQL timestamp fields moving into Iceberg, Hive, or Trino should increase the priority of timezone and min/max checks.
+- `write_mode=overwrite` with partition fields should increase the priority of partition row count, partition checksum, and missing partition checks.
+- Flink CDC or incremental mode should increase the priority of update time boundary checks and source/sink record metric comparison.
+- Doris Stream Load contexts should increase the priority of sink retry, redirect, and commit-log checks in root-cause analysis.
+
+The strategy output should explain which retrieved cases affected the plan.
+
+### 6.6 Rule and Schema Guardrails
 
 Rules are not the primary planner, but they are mandatory guardrails:
 
@@ -143,7 +234,7 @@ Rules are not the primary planner, but they are mandatory guardrails:
   - partition row count and checksum when partition fields exist
   - bucket diff or exact diff when key fields exist and mismatch evidence requires localization
 
-### 4.5 Existing DataAudit Mapping
+### 6.7 Existing DataAudit Mapping
 
 The AI plan must be mapped to existing DataAudit concepts, but the mapping is a capability layer, not the primary source of strategy.
 
@@ -161,7 +252,7 @@ The mapping should include:
 
 This mapping lets the plan be ambitious while staying honest about what Alpha can run.
 
-### 4.6 Output
+### 6.8 Output
 
 `audit_plan.json` should contain:
 
@@ -247,9 +338,9 @@ Illustrative shape:
 }
 ```
 
-## 5. P0-2: RAG-Enhanced Root-Cause Analyzer
+## 7. P0-2: RAG-Enhanced Root-Cause Analyzer
 
-### 5.1 Input
+### 7.1 Input
 
 The analyzer consumes:
 
@@ -274,7 +365,7 @@ It must understand the existing `ReportModel` evidence fields:
 - `evidence.exact_diff`
 - `evidence.notes`
 
-### 5.2 AI Responsibilities
+### 7.2 AI Responsibilities
 
 The analyzer produces possible causes and next checks. It must never promote a hypothesis to a deterministic conclusion.
 
@@ -288,7 +379,93 @@ It should:
 - Recommend next deterministic checks.
 - Identify missing information.
 
-### 5.3 Output
+### 7.3 Historical Case Retrieval
+
+The analyzer should not rely only on simple rules such as `row_count mismatch -> missing rows`. It should extract anomaly features and retrieve similar cases before ranking hypotheses.
+
+Feature extraction should include:
+
+- Which deterministic checks failed: global count, checksum, partition stats, metric sums, enum distribution, bucket diff, exact diff.
+- Whether the anomaly is global or concentrated in partitions, buckets, time windows, or enum values.
+- Source and target types.
+- Sync mode and write mode.
+- Boundary type and boundary reference.
+- Deterministic proof strength from `proof_mode` and audit `confidence`.
+- Log and metric signals such as source records, sink records, checkpoint status, commit success, and retry or redirect messages.
+
+Example:
+
+```text
+current anomaly:
+target has fewer rows, differences concentrate in one dt partition, write_mode=overwrite
+
+retrieved case:
+Iceberg overwrite partition coverage mismatch caused missing target rows
+
+AI hypothesis:
+overwrite partition coverage may be incomplete; inspect snapshot and target partition file changes
+```
+
+### 7.4 Log and Metric Understanding
+
+The analyzer should accept log snippets and metric summaries from systems such as SeaTunnel, Flink, YARN, Prometheus, JDBC sinks, Iceberg writers, and Doris Stream Load.
+
+AI should use these signals to distinguish:
+
+- Task failure causing incomplete output.
+- Task success with data inconsistency.
+- Source read completeness issue.
+- Sink write, retry, commit, filtering, or overwrite issue.
+- Boundary drift or incremental window mismatch.
+
+For example:
+
+```text
+audit evidence:
+source_count=10000000, target_count=9999800
+
+metrics:
+source_records=10000000, sink_records=9999800
+
+logs:
+sink commit success
+```
+
+The AI hypothesis should lean toward sink write, filter, commit, or target overwrite issues, while still listing missing details such as sink commit files, rejected row counts, and target snapshot changes.
+
+### 7.5 Evidence Chain Output
+
+Root-cause analysis must be evidence-chain-oriented. Each possible cause should include direct audit evidence, retrieved case evidence, log or metric evidence, missing information, and next deterministic checks.
+
+Illustrative shape:
+
+```json
+{
+  "possible_cause": "target partition overwrite coverage may be incomplete",
+  "confidence": 0.82,
+  "evidence": [
+    "diff is concentrated in dt=2026-04-24",
+    "write_mode=overwrite",
+    "log snippet contains overwrite partition dt=2026-04-24",
+    "target row count is 200 lower than source row count"
+  ],
+  "retrieved_cases": [
+    "iceberg_overwrite_partition_missing_rows"
+  ],
+  "missing_information": [
+    "Iceberg snapshot manifest changes",
+    "sink commit detail",
+    "target partition file count before and after job"
+  ],
+  "recommended_checks": [
+    "inspect Iceberg snapshot for dt=2026-04-24",
+    "compare target partition file counts",
+    "run bucket diff for dt=2026-04-24"
+  ]
+}
+```
+
+### 7.6 Output
 
 `root_cause_analysis.json` should contain:
 
@@ -303,11 +480,11 @@ It should:
 
 The safety notice should explicitly say that the analysis is probabilistic and does not replace DataAudit deterministic results.
 
-## 6. P0-3: Multi-Role Markdown Report Generator
+## 8. P0-3: Multi-Role Audit Report Generator
 
-### 6.1 Templates
+### 8.1 Templates
 
-Alpha supports at least two templates:
+Alpha supports at least three templates:
 
 - `technical`
   - anomalous partitions
@@ -322,8 +499,16 @@ Alpha supports at least two templates:
   - risk level
   - acceptance recommendation
   - next handling suggestion
+- `management`
+  - overall status
+  - impact scope
+  - current risk
+  - expected handling path
+  - whether release or acceptance is blocked
 
-### 6.2 Report Rules
+This makes the report generator an AI delivery assistant instead of a static Markdown template writer. The same evidence should be rewritten for different audiences without changing the deterministic facts.
+
+### 8.2 Report Rules
 
 The report generator may use AI for language and structure, but deterministic fields must be copied or derived from audit evidence:
 
@@ -334,7 +519,19 @@ The report generator may use AI for language and structure, but deterministic fi
 
 The report must not state that AI verified data consistency.
 
-## 7. RAG and Knowledge Base
+### 8.3 Suggested Follow-Up Questions
+
+Reports should include a short "questions you may ask next" section when useful. This is not full interactive Q&A in Alpha, but it prepares the product direction for a future Copilot conversation layer.
+
+Example questions:
+
+- Why not run a full-table exact diff?
+- Does this difference block acceptance?
+- Why is overwrite currently a likely hypothesis?
+- What is the smallest next deterministic check?
+- If the job must be rerun, which partition or bucket should be rerun first?
+
+## 9. RAG and Knowledge Base
 
 Alpha should start with a local corpus:
 
@@ -367,7 +564,151 @@ Initial cases should cover:
 
 The first implementation can use lexical retrieval with scoring by tags, source/target type, risk type, and symptom keywords. Vector retrieval can be added in a follow-up phase behind the same `RagRetriever` interface.
 
-## 8. CLI Design
+## 10. One-Month Alpha Priorities
+
+The first Alpha should emphasize capabilities that visibly require AI while staying trustworthy:
+
+| Capability | Module | One-month recommendation |
+| --- | --- | --- |
+| Field semantic recognition | P0-1 | Build |
+| Risk field recognition | P0-1 | Build |
+| Strategy generation from table profile | P0-1 | Build |
+| Historical-case adjustment to strategy | P0-1 | Build a simplified RAG version |
+| SQL generation | P0-1 | Generate templates only; do not execute AI SQL directly |
+| Anomaly feature extraction | P0-2 | Build |
+| Historical failure retrieval | P0-2 | Build a simplified RAG version |
+| Root-cause hypothesis ranking | P0-2 | Build |
+| Evidence chain generation | P0-2 | Build |
+| Automatic repair | P0-2 | Out of scope |
+| Multi-role report rewriting | P0-3 | Build |
+| Automatic summary | P0-3 | Build |
+| Investigation command generation | P0-3 | Build as suggestions |
+| Interactive Q&A | P0-3 | Out of scope |
+
+The five strongest AI signals for an Alpha demo are:
+
+1. Field semantic recognition.
+2. Risk field recognition.
+3. RAG retrieval of historical cases.
+4. Root-cause evidence chain generation.
+5. Multi-role report generation.
+
+## 11. Demo Flow
+
+A strong demo should show AI participating in decision support while deterministic engines keep the final audit status trustworthy.
+
+Step 1: input table profile:
+
+```json
+{
+  "table": "t_order",
+  "columns": [
+    {"name": "order_id", "type": "varchar", "comment": "order number"},
+    {"name": "user_id", "type": "bigint", "comment": "user id"},
+    {"name": "amount", "type": "decimal(20,2)", "comment": "order amount"},
+    {"name": "status", "type": "varchar", "comment": "order status"},
+    {"name": "create_time", "type": "timestamp", "comment": "created time"},
+    {"name": "dt", "type": "date", "comment": "partition date"}
+  ],
+  "has_primary_key": false,
+  "estimated_size_gb": 500,
+  "partition_keys": ["dt"],
+  "source": "oracle",
+  "target": "iceberg"
+}
+```
+
+Step 2: AI semantic analysis:
+
+```json
+{
+  "candidate_business_keys": ["order_id"],
+  "metric_fields": ["amount"],
+  "enum_fields": ["status"],
+  "time_fields": ["create_time", "dt"],
+  "risk_fields": [
+    {
+      "field": "amount",
+      "risk": "decimal precision mapping risk"
+    },
+    {
+      "field": "create_time",
+      "risk": "timestamp timezone conversion risk"
+    },
+    {
+      "field": "dt",
+      "risk": "partition shift risk"
+    }
+  ]
+}
+```
+
+Step 3: AI-generated audit strategy:
+
+```json
+{
+  "strategy": "large_partitioned_table_with_business_key_candidate",
+  "steps": [
+    "global_row_count",
+    "global_checksum",
+    "partition_row_count_by_dt",
+    "partition_checksum_by_dt",
+    "sum_check_for_amount_by_dt",
+    "distribution_check_for_status_by_dt",
+    "min_max_check_for_create_time_by_dt",
+    "bucket_diff_for_abnormal_partition"
+  ]
+}
+```
+
+Step 4: deterministic audit result:
+
+```json
+{
+  "row_count_equal": false,
+  "diff_partition": "dt=2026-04-24",
+  "source_count": 500000,
+  "target_count": 499800,
+  "amount_sum_equal": true,
+  "status_distribution_equal": false,
+  "write_mode": "overwrite",
+  "logs": [
+    "overwrite partition dt=2026-04-24",
+    "sink commit success"
+  ]
+}
+```
+
+Step 5: RAG-enhanced root-cause hypotheses:
+
+```json
+{
+  "retrieved_cases": [
+    "Iceberg overwrite partition coverage mismatch caused missing target rows",
+    "status enum mapping mismatch caused distribution drift"
+  ],
+  "likely_causes": [
+    {
+      "cause": "target partition overwrite coverage may be incomplete",
+      "confidence": 0.84,
+      "evidence": [
+        "difference is concentrated in one dt partition",
+        "write_mode=overwrite",
+        "log contains overwrite partition",
+        "target has 200 fewer rows"
+      ]
+    }
+  ]
+}
+```
+
+Step 6: generate role-specific reports:
+
+- Technical report: SQL checks, log evidence, metrics, bucket diff suggestions.
+- Acceptance report: deterministic status, affected scope, risk level, acceptance recommendation.
+- Management summary: overall status, business impact, blocker status, next handling path.
+
+## 12. CLI Design
 
 Recommended commands:
 
@@ -393,7 +734,7 @@ data-audit check -f task.yaml --ai-report
 
 This future command should run deterministic `check` first, then generate AI analysis and Markdown reports from the resulting `report.json`.
 
-## 9. Example Set
+## 13. Example Set
 
 Alpha should include examples for:
 
@@ -410,7 +751,7 @@ Each example should include:
 - generated `root_cause_analysis.json` when relevant
 - generated Markdown report when relevant
 
-## 10. Implementation Boundaries
+## 14. Implementation Boundaries
 
 The AI module should avoid introducing mandatory network dependencies in Alpha. The implementation should support:
 
@@ -422,7 +763,7 @@ LLM output must use JSON Schema as much as possible. Because provider support di
 
 No generated SQL should be executed by the AI module. SQL templates are recommendations only unless explicitly mapped to existing deterministic DataAudit execution paths in a follow-up execution feature.
 
-## 11. Testing Strategy
+## 15. Testing Strategy
 
 Tests should cover:
 
