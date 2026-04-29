@@ -1,0 +1,27 @@
+task:
+  name: orders_large_partitioned_nokey
+  mode: post_check
+source:
+  type: oracle
+  table: ods.orders
+target:
+  type: iceberg
+  table: dw.orders
+object:
+  partition_by:
+    - dt
+  estimated_rows: 500000000
+  columns:
+    - order_id
+    - user_id
+    - amount
+    - status
+    - create_time
+    - dt
+normalize:
+  timezone: Asia/Shanghai
+semantics:
+  ai:
+    write_mode: overwrite
+output:
+  dir: ./reports/ai-copilot/orders_large_partitioned_nokey

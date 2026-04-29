@@ -1,0 +1,10 @@
+{
+  "id": "flink-cdc-boundary-miss",
+  "title": "Flink CDC incremental boundary miss",
+  "sync_mode": "cdc",
+  "symptoms": ["target row count lower", "checkpoint", "incremental boundary"],
+  "evidence_patterns": ["checkpoint", "cdc", "source_records", "sink_records", "boundary"],
+  "likely_causes": ["可能是 CDC 边界或 checkpoint 恢复导致部分增量未写入"],
+  "recommended_checks": ["检查 checkpoint", "检查 source_records/sink_records", "核对增量起止位点"],
+  "tags": ["flink", "cdc", "checkpoint", "boundary"]
+}

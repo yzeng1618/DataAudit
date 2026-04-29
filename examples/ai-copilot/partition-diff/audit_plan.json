@@ -1,0 +1,25 @@
+{
+  "plan_version": "alpha-1",
+  "table_classification": {"table_type": "large_partitioned_table", "scale_class": "large", "confidence": 0.88, "evidence": ["estimated_rows=5000000", "partition_field_detected"], "missing_information": ["none"]},
+  "semantic_analysis": {
+    "candidate_primary_keys": ["order_id"],
+    "partition_fields": ["dt"],
+    "time_fields": ["create_time", "dt"],
+    "metric_fields": ["amount"],
+    "enum_fields": ["status"],
+    "text_fields": ["status"],
+    "semi_structured_fields": []
+  },
+  "risk_analysis": [
+    {"field": "dt", "risk_type": "partition_overwrite_risk", "description": "overwrite write mode may cover an incomplete partition range", "confidence": 0.86, "evidence": ["write_mode=overwrite"], "missing_information": ["target_snapshot_or_commit_files"]}
+  ],
+  "recommended_steps": [
+    {"id": "global_row_count", "type": "global_row_count", "description": "全局行数核验", "trigger_condition": "always", "sql_template": "select count(*) as row_count from ${table}", "risk_points": [], "missing_information": ["none"], "confidence": 0.97, "evidence": ["deterministic_baseline"], "mapping": {"step_id": "global_row_count", "capability": "summary_engine", "status": "SUPPORTED", "notes": "can map to existing DataAudit deterministic capability", "execution_plan_refs": ["TaskFileSpec", "ExecutionPlan"]}},
+    {"id": "partition_checksum_dt", "type": "partition_checksum", "description": "按分区 checksum 核验: dt", "trigger_condition": "partition field detected", "sql_template": "select dt, checksum(${columns}) from ${table} group by dt", "risk_points": [], "missing_information": ["none"], "confidence": 0.88, "evidence": ["partition_field:dt"], "mapping": {"step_id": "partition_checksum_dt", "capability": "grouped_checksum", "status": "SUPPORTED", "notes": "can map to existing DataAudit deterministic capability", "execution_plan_refs": ["TaskFileSpec", "ExecutionPlan"]}}
+  ],
+  "data_audit_mapping": [],
+  "planner_trace": {"ai_provider": "disabled", "decisions": ["AI-first semantics with guardrail baseline"], "guardrail_actions": [], "knowledge_cases": ["iceberg-partition-overwrite"]},
+  "sync_context": {"write_mode": "overwrite", "timezone": "Asia/Shanghai"},
+  "deterministic_boundary": {"ai_consistency_conclusion": false, "notice": "AI only recommends deterministic checks; consistency status must come from DataAudit audit results."},
+  "missing_information": []
+}

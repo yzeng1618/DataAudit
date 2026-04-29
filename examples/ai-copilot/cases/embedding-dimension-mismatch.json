@@ -1,0 +1,9 @@
+{
+  "id": "embedding-dimension-mismatch",
+  "title": "RAG dataset embedding_dim mismatch",
+  "symptoms": ["checksum mismatch", "embedding_dim mismatch"],
+  "evidence_patterns": ["embedding_dim", "vector", "1536", "1024", "schema drift"],
+  "likely_causes": ["可能是 embedding 模型版本或向量维度不一致"],
+  "recommended_checks": ["检查 embedding_dim 分布", "检查 embedding 模型版本", "对向量字段执行维度和 null 率检查"],
+  "tags": ["embedding", "vector", "checksum", "schema"]
+}

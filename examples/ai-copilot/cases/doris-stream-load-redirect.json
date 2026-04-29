@@ -1,0 +1,10 @@
+{
+  "id": "doris-stream-load-redirect",
+  "title": "Doris Stream Load redirect/retry",
+  "target_type": "doris",
+  "symptoms": ["target row count lower", "retry", "redirect"],
+  "evidence_patterns": ["307", "redirect", "retry", "stream load", "rejected"],
+  "likely_causes": ["可能是 Doris Stream Load 重定向、重试或 rejected rows 处理异常"],
+  "recommended_checks": ["检查 Stream Load label", "检查 rejected rows", "核对 FE/BE redirect 日志"],
+  "tags": ["doris", "stream", "redirect", "retry"]
+}

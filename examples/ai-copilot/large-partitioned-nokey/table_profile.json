@@ -1,0 +1,20 @@
+{
+  "profile_version": "alpha-1",
+  "source": {"type": "oracle", "table": "ods.orders"},
+  "target": {"type": "iceberg", "table": "dw.orders"},
+  "columns": [
+    {"name": "order_id", "type": "varchar", "comment": "订单号"},
+    {"name": "user_id", "type": "bigint", "comment": "用户ID"},
+    {"name": "amount", "type": "decimal(20,2)", "comment": "订单金额"},
+    {"name": "status", "type": "varchar", "comment": "订单状态"},
+    {"name": "create_time", "type": "timestamp", "comment": "创建时间"},
+    {"name": "dt", "type": "date", "comment": "分区日期"}
+  ],
+  "statistics": {"estimated_rows": 500000000, "limited_collection": true, "max_sample_rows": 20, "max_sample_fields": 20, "timeout_millis": 3000},
+  "samples": [],
+  "sync_context": {"write_mode": "overwrite", "timezone": "Asia/Shanghai"},
+  "boundary": {"type": "job_finish", "reference": "latest"},
+  "overrides": {"primary_keys": [], "partition_fields": ["dt"]},
+  "retrieval_hints": ["oracle_to_iceberg", "overwrite"],
+  "missing_information": ["unique_or_distinct_count_evidence", "live_stats_sample_collection_not_executed"]
+}

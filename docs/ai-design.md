@@ -27,35 +27,37 @@ The first implementation should be CLI-first and integrated with the existing Ma
 
 - Add a new `data-audit-ai` module for AI models, prompt/schema contracts, RAG retrieval, guardrails, strategy planning, analysis, and Markdown rendering.
 - Extend `data-audit-cli` with `data-audit ai plan`, `data-audit ai explain`, and `data-audit ai report`.
-- Document `dataaudit-ai plan/explain/report` as a thin wrapper command that can be added in a follow-up phase without changing core behavior.
-- Add `data-audit check --ai-report` as an integrated post-check workflow after the three standalone commands are stable.
+- Include a real LLM provider integration in Alpha while retaining `disabled` and `mock` providers for offline use, examples, and CI.
+- Make `data-audit ai plan --task task.yaml --output audit_plan.json` the default user-facing planning path.
+- Treat `table_profile.json` as a system-generated intermediate artifact, not as a primary user-authored input.
+- Add a low-friction Profile Quality Gate before planning when the generated profile has high-impact uncertain fields.
+- Document `dataaudit-ai plan/explain/report` as a thin wrapper command backed by the same core behavior.
+- Add `data-audit check --ai-report` as an integrated post-check workflow that runs deterministic `check` first and writes AI sidecar artifacts.
 
 ## 3. Core Workflow
 
-The AI workflow should be evidence-first, but AI-first in strategy generation:
+The default AI workflow should minimize user input. Users provide an existing DataAudit task YAML; the AI layer builds and validates the table profile before planning.
 
 ```text
-table profile
-+ field semantics
-+ sample data
-+ sync context
-+ write mode
-+ historical cases
-+ knowledge base
-+ explicit user config
+task.yaml
   |
   v
-LLM semantic planning + RAG
+auto collect schema / metadata / stats / sample
   |
   v
-rule and schema guardrails
+generate table_profile.json
   |
   v
-DataAudit capability mapping
+Profile Quality Gate
+  |-- CONFIRMED ---------> LLM semantic planning + RAG
+  |-- REVIEW_REQUIRED ---> write profile_review.md and stop before plan
+  |-- INSUFFICIENT ------> report missing baseline information and stop
   |
   v
 audit_plan.json
 ```
+
+Advanced or test workflows may provide `table_profile.json` directly, but this is not the default product path.
 
 The planner should not reduce AI to a supplemental note generator. AI is expected to make the first semantic strategy proposal. Rules and existing DataAudit planning components then constrain, validate, complete, and map that proposal.
 
@@ -65,6 +67,7 @@ When the user already has a DataAudit task YAML, the AI layer should be able to 
 - `SchemaReader` supplies field names, types, and nullability where connectors support it.
 - `MetadataReader` supplies table metadata, partitioning, snapshot, and size hints where available.
 - `SignalReader` or existing summary engines can supply row counts, checksums, min/max, distinct counts, and partition stats when available.
+- Stats and samples are collected with limits: timeout, maximum row count, maximum field count, and masking rules.
 - User config supplies authoritative overrides such as required keys, ignored columns, forced partitions, and known risk fields.
 
 The AI planner should treat live profile data and explicit config as higher-quality evidence than name-only inference.
@@ -120,7 +123,9 @@ This boundary should be visible in every output schema. AI outputs use `confiden
 
 ### 6.1 Input
 
-The planner input is `table_profile.json`. It should support more than static schema:
+The default planner input is `task.yaml`. The system builds `table_profile.json` automatically and only asks the user to confirm high-impact uncertain items when necessary.
+
+`table_profile.json` should support more than static schema:
 
 - Source and target system types.
 - Source and target table names or query identities.
@@ -128,7 +133,7 @@ The planner input is `table_profile.json`. It should support more than static sc
 - Field names, types, nullability, precision, scale, comments, and tags.
 - Primary key or configured unique keys when known.
 - Partition fields when known.
-- Sample rows or redacted sample values.
+- Redacted samples, sample patterns, or statistical summaries. Raw sensitive values should not be written by default.
 - Basic column statistics when available: null ratio, distinct count, min/max, top values, length distribution.
 - Sync context: batch, CDC, full refresh, incremental, snapshot, time-window.
 - Write mode: append, upsert, overwrite, merge, stream load, copy into.
@@ -136,24 +141,87 @@ The planner input is `table_profile.json`. It should support more than static sc
 - Historical case references or retrieval corpus.
 - User overrides from config, such as forced key fields, ignored columns, required metrics, and known risk fields.
 
-The input should allow missing sections. Missing data must be surfaced in `missing_information`, not silently ignored.
+The generated profile should allow missing sections. Missing data must be surfaced in `missing_information`, not silently ignored.
 
 ### 6.2 Profile Builder and Config Fallback
 
 Alpha should support two profile creation modes:
 
-- Direct profile mode: the user provides `table_profile.json`.
-- DataAudit task mode: the user provides an existing task YAML, and the AI module builds `table_profile.json` from DataAudit config plus connector metadata.
+- Default task mode: the user provides an existing task YAML, and the AI module builds `table_profile.json` from DataAudit config plus connector metadata.
+- Advanced profile mode: the user provides `table_profile.json` directly for tests, demos, offline reproduction, or manual enrichment.
 
 The fallback direction is config-backed, not rule-only:
 
 - If AI identifies a likely key but the config explicitly sets `object.key`, the config key wins and the AI candidate remains as supporting context.
 - If AI identifies `dt` as a partition field and the config has no `object.partition_by`, the planner may recommend writing `dt` into the generated DataAudit config proposal, but it must mark the recommendation as `requires_user_confirmation`.
 - If live schema exposes decimal precision, timestamp type, or semi-structured field types, these values become evidence for risk analysis.
+- Stats and sample collection must be bounded by timeout, maximum row count, and maximum field count.
+- Raw sensitive values must not be written to `table_profile.json` by default; use masked values, hashes, patterns, or aggregate statistics instead.
 - If only field names are available, AI may infer semantics but must lower confidence and list missing statistics or samples.
 - If LLM output omits mandatory safe checks, guardrails insert global `row_count` and checksum steps from deterministic DataAudit defaults.
 
-### 6.3 AI Responsibilities
+Confirmed business facts should be written back to task YAML when the user wants to avoid repeated review. Existing DataAudit config remains preferred for existing concepts:
+
+```yaml
+object:
+  key:
+    - order_id
+  partition_by:
+    - dt
+```
+
+AI-specific business context can be captured under a small semantic section:
+
+```yaml
+semantics:
+  ai:
+    write_mode: overwrite
+    sync_mode: batch
+    metric_fields:
+      - amount
+    timezone: Asia/Shanghai
+```
+
+### 6.3 Profile Quality Gate
+
+Profile Quality Gate prevents the system from silently planning from a weak or ambiguous profile. It should be low-friction and conditional, not a full manual review flow.
+
+Profile status values:
+
+- `CONFIRMED`: evidence is strong enough; generate `audit_plan.json` directly.
+- `REVIEW_REQUIRED`: high-impact uncertain items exist; write `profile_review.md`, print a console summary, and stop before generating `audit_plan.json`.
+- `INSUFFICIENT`: baseline task, schema, source, target, or table information is missing; stop and explain what must be provided.
+
+`REVIEW_REQUIRED` should only be triggered for high-impact items that change the audit strategy:
+
+- Candidate key is inferred by AI but lacks uniqueness or distinct-count evidence.
+- Partition field is inferred by AI but not declared by task config or connector metadata.
+- Write mode or sync mode is missing or low-confidence.
+- Timestamp fields exist but source or target timezone is unclear.
+- Explicit config, connector metadata, and AI inference conflict.
+
+Other risks, including metric ambiguity or semi-structured field uncertainty, should go into `risk_analysis` and `missing_information` without blocking plan generation unless they also affect key, partition, write mode, sync mode, or timezone.
+
+The review output should be a compact `profile_review.md`, not a full JSON dump:
+
+```text
+Profile status: REVIEW_REQUIRED
+Audit plan not generated yet.
+
+Need confirmation:
+- candidate key: order_id, confidence=0.82
+- write_mode: overwrite, confidence=0.68
+
+Next:
+1. Update task.yaml with overrides and rerun
+2. Or rerun with --accept-profile to continue
+```
+
+Users should not be expected to edit `table_profile.json` in the normal path. Confirmed information should be captured in task YAML overrides whenever possible.
+
+`--accept-profile` should stay simple in Alpha. It lets the current command continue with the generated profile and does not need to persist a separate confirmation record.
+
+### 6.4 AI Responsibilities
 
 The LLM participates in strategy planning by making these judgments:
 
@@ -175,7 +243,7 @@ Examples:
 - `create_time` and `update_time` should receive min/max and timezone boundary checks.
 - `payload`, `extra_info`, `properties`, `json`, `variant`, and `map` fields should receive semi-structured checks such as key existence, schema drift, null or empty object ratio, and normalized JSON hash.
 
-### 6.4 Verification Metric Recommendations
+### 6.5 Verification Metric Recommendations
 
 The planner should recommend field-aware deterministic metrics, not only global row count and checksum.
 
@@ -205,7 +273,7 @@ The AI planner should recommend:
 - Null and empty object ratio checks.
 - Normalized JSON hash checks for deterministic comparison.
 
-### 6.5 Knowledge-Enhanced Planning
+### 6.6 Knowledge-Enhanced Planning
 
 RAG should influence the strategy before execution. Historical cases should be retrieved from source/target type, write mode, field types, and symptoms in the table profile.
 
@@ -219,7 +287,7 @@ Examples:
 
 The strategy output should explain which retrieved cases affected the plan.
 
-### 6.6 Rule and Schema Guardrails
+### 6.7 Rule and Schema Guardrails
 
 Rules are not the primary planner, but they are mandatory guardrails:
 
@@ -234,7 +302,7 @@ Rules are not the primary planner, but they are mandatory guardrails:
   - partition row count and checksum when partition fields exist
   - bucket diff or exact diff when key fields exist and mismatch evidence requires localization
 
-### 6.7 Existing DataAudit Mapping
+### 6.8 Existing DataAudit Mapping
 
 The AI plan must be mapped to existing DataAudit concepts, but the mapping is a capability layer, not the primary source of strategy.
 
@@ -252,7 +320,7 @@ The mapping should include:
 
 This mapping lets the plan be ambitious while staying honest about what Alpha can run.
 
-### 6.8 Output
+### 6.9 Output
 
 `audit_plan.json` should contain:
 
@@ -266,6 +334,8 @@ This mapping lets the plan be ambitious while staying honest about what Alpha ca
 - Retrieved historical cases.
 - Guardrail validation results.
 - Missing information.
+
+When the profile quality gate stops planning, the command should write `table_profile.json` and `profile_review.md`, but it should not write `audit_plan.json` unless `--accept-profile` is provided or the profile becomes `CONFIRMED`.
 
 Illustrative shape:
 
@@ -519,9 +589,15 @@ The report generator may use AI for language and structure, but deterministic fi
 
 The report must not state that AI verified data consistency.
 
-### 8.3 Suggested Follow-Up Questions
+### 8.3 Suggested Follow-Up Questions and Single-Turn Q&A
 
-Reports should include a short "questions you may ask next" section when useful. This is not full interactive Q&A in Alpha, but it prepares the product direction for a future Copilot conversation layer.
+Reports should include a short "questions you may ask next" section when useful. Alpha also supports a single-turn Q&A command grounded in `audit_plan.json`, deterministic result/report JSON, and `root_cause_analysis.json`.
+
+The Q&A layer must keep a clear boundary:
+
+- deterministic facts such as status, proof mode, confidence, and suspect scope come only from DataAudit results;
+- AI root-cause items remain hypotheses;
+- the answer can recommend next checks or repair planning, but cannot turn an AI hypothesis into an audit conclusion.
 
 Example questions:
 
@@ -562,7 +638,13 @@ Initial cases should cover:
 - Doris Stream Load 307 redirect or retry behavior.
 - RAG dataset embedding dimension mismatch.
 
-The first implementation can use lexical retrieval with scoring by tags, source/target type, risk type, and symptom keywords. Vector retrieval can be added in a follow-up phase behind the same `RagRetriever` interface.
+The local implementation supports three modes behind the same `RagRetriever` interface:
+
+- `lexical`: scoring by tags, source/target type, risk type, and symptom keywords.
+- `vector`: `EmbeddingClient` + cosine similarity. The built-in implementation is a deterministic `HashingEmbeddingClient`, intended for CI and offline demos rather than real semantic embedding quality.
+- `hybrid`: merges lexical and vector scores, de-duplicates cases, and sorts by the combined score.
+
+Future external embedding services or vector databases can be added behind `EmbeddingClient` and `RagRetriever` without changing planner/analyzer contracts.
 
 ## 10. One-Month Alpha Priorities
 
@@ -572,18 +654,19 @@ The first Alpha should emphasize capabilities that visibly require AI while stay
 | --- | --- | --- |
 | Field semantic recognition | P0-1 | Build |
 | Risk field recognition | P0-1 | Build |
-| Strategy generation from table profile | P0-1 | Build |
+| Strategy generation from task-derived profile | P0-1 | Build |
+| Profile Quality Gate | P0-1 | Build |
 | Historical-case adjustment to strategy | P0-1 | Build a simplified RAG version |
 | SQL generation | P0-1 | Generate templates only; do not execute AI SQL directly |
 | Anomaly feature extraction | P0-2 | Build |
 | Historical failure retrieval | P0-2 | Build a simplified RAG version |
 | Root-cause hypothesis ranking | P0-2 | Build |
 | Evidence chain generation | P0-2 | Build |
-| Automatic repair | P0-2 | Out of scope |
+| Automatic repair | P0-2 | Build safe repair plan only; do not mutate data |
 | Multi-role report rewriting | P0-3 | Build |
 | Automatic summary | P0-3 | Build |
 | Investigation command generation | P0-3 | Build as suggestions |
-| Interactive Q&A | P0-3 | Out of scope |
+| Interactive Q&A | P0-3 | Build single-turn grounded Q&A |
 
 The five strongest AI signals for an Alpha demo are:
 
@@ -597,7 +680,13 @@ The five strongest AI signals for an Alpha demo are:
 
 A strong demo should show AI participating in decision support while deterministic engines keep the final audit status trustworthy.
 
-Step 1: input table profile:
+Step 1: user runs the default task-based planning command:
+
+```bash
+data-audit ai plan --task task.yaml --output audit_plan.json
+```
+
+The system derives a table profile from task config and connector evidence. A generated profile may look like:
 
 ```json
 {
@@ -713,26 +802,44 @@ Step 6: generate role-specific reports:
 Recommended commands:
 
 ```bash
-data-audit ai plan --input table_profile.json --output audit_plan.json
+data-audit ai plan --task task.yaml --output audit_plan.json
+data-audit ai plan --task task.yaml --output audit_plan.json --accept-profile
+data-audit ai profile --task task.yaml --output table_profile.json --review profile_review.md
+data-audit ai plan --profile table_profile.json --output audit_plan.json
 data-audit ai explain --plan audit_plan.json --result audit_result.json --output root_cause_analysis.json
 data-audit ai report --plan audit_plan.json --result audit_result.json --analysis root_cause_analysis.json --template technical --output audit_report.md
+data-audit ai repair --plan audit_plan.json --result report.json --analysis root_cause_analysis.json --output repair_plan.json
+data-audit ai ask --plan audit_plan.json --result report.json --analysis root_cause_analysis.json --question "这个差异是否阻塞验收？"
 ```
 
-Documented wrapper commands:
+Default behavior:
+
+- `data-audit ai plan --task ...` automatically builds `table_profile.json`.
+- If profile status is `CONFIRMED`, it writes `audit_plan.json`.
+- If profile status is `REVIEW_REQUIRED`, it writes `profile_review.md`, prints a console summary, and does not write `audit_plan.json`.
+- If the user reruns with `--accept-profile`, it proceeds with the current generated profile.
+- `data-audit ai profile` exists for explicit profile generation, debugging, demos, and offline reproduction.
+- `data-audit ai plan --profile` is an advanced/test path, not the default user workflow.
+- `data-audit ai repair` generates a reviewable repair plan and can optionally write a patched task YAML copy for config-only repairs.
+- `data-audit ai ask` answers one grounded follow-up question and separates deterministic facts from AI hypotheses.
+
+Documented wrapper commands backed by the same AI command implementation:
 
 ```bash
-dataaudit-ai plan --input table_profile.json --output audit_plan.json
+dataaudit-ai plan --task task.yaml --output audit_plan.json
 dataaudit-ai explain --plan audit_plan.json --result audit_result.json --output root_cause_analysis.json
 dataaudit-ai report --plan audit_plan.json --result audit_result.json --analysis root_cause_analysis.json --template technical --output audit_report.md
+dataaudit-ai repair --plan audit_plan.json --result report.json --analysis root_cause_analysis.json --output repair_plan.json
+dataaudit-ai ask --plan audit_plan.json --result report.json --analysis root_cause_analysis.json --question "这个差异是否阻塞验收？"
 ```
 
-Future integrated workflow:
+Integrated post-check workflow:
 
 ```bash
 data-audit check -f task.yaml --ai-report
 ```
 
-This future command should run deterministic `check` first, then generate AI analysis and Markdown reports from the resulting `report.json`.
+This command runs deterministic `check` first, then generates AI analysis and Markdown reports from the resulting `ReportModel`. AI sidecars must not change the deterministic `report.json`, `report.html`, or process exit code.
 
 ## 13. Example Set
 
@@ -746,8 +853,9 @@ Alpha should include examples for:
 
 Each example should include:
 
-- input profile or audit result
+- task YAML or generated profile
 - generated `audit_plan.json`
+- `profile_review.md` when profile status is `REVIEW_REQUIRED`
 - generated `root_cause_analysis.json` when relevant
 - generated Markdown report when relevant
 
@@ -757,22 +865,37 @@ The AI module should avoid introducing mandatory network dependencies in Alpha. 
 
 - `provider=disabled`: rule and local RAG only
 - `provider=mock`: deterministic test fixture responses
-- `provider=openai` or other providers through `AiClient` in a follow-up provider integration
+- `provider=http-json`: external structured JSON provider through `AiClient`
+- `provider=openai-compatible`: OpenAI Chat Completions compatible HTTP endpoint
+- `provider=openai-sdk`: official OpenAI Java SDK adapter
 
 LLM output must use JSON Schema as much as possible. Because provider support differs, the local system must still validate parsed JSON and repair or reject unsafe output.
 
+Provider configuration should be optional. CI and local offline tests must use `disabled` or `mock`; real provider tests should be opt-in.
+
 No generated SQL should be executed by the AI module. SQL templates are recommendations only unless explicitly mapped to existing deterministic DataAudit execution paths in a follow-up execution feature.
+
+Automatic repair in Alpha is intentionally non-destructive: it may generate `repair_plan.json`, rerun suggestions, manual data-fix guidance, and optional patched task YAML copies for safe config-level fields. It must not execute mutation SQL or modify source/target data.
 
 ## 15. Testing Strategy
 
 Tests should cover:
 
 - Semantic planning from representative table profiles.
+- Profile quality gate status: `CONFIRMED`, `REVIEW_REQUIRED`, and `INSUFFICIENT`.
+- `--accept-profile` behavior.
+- Real provider disabled/mock fallback behavior.
+- Bounded stats/sample collection and sample masking behavior.
 - Guardrail rejection of mutation SQL.
 - Required `confidence`, `evidence`, and `missing_information` fields.
 - Mapping AI steps to supported, partial, and unsupported DataAudit capabilities.
 - Root-cause analyzer phrasing as hypotheses rather than conclusions.
 - Markdown report deterministic status derivation from audit results.
+- Lexical/vector/hybrid RAG retrieval behavior.
+- Repair plan safety: config-only patched task YAML, no source/target mutation.
+- Single-turn Q&A acceptance/blocker answers grounded in deterministic status.
+- `openai-sdk` provider factory wiring without requiring network tests.
+- `dataaudit-ai.jar` wrapper delegation to the same `data-audit ai` command path.
 - All five required examples.
 
 The first implementation should keep tests deterministic by using rule mode and mock AI responses.

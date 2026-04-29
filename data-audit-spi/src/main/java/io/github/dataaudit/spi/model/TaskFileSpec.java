@@ -84,6 +84,7 @@ public class TaskFileSpec {
     public static class SemanticsSpec {
         public DmlSpec dml = new DmlSpec();
         public DdlSpec ddl = new DdlSpec();
+        public AiSpec ai = new AiSpec();
     }
 
     public static class DmlSpec {
@@ -102,6 +103,15 @@ public class TaskFileSpec {
         public Map<String, String> renameMapping = new LinkedHashMap<>();
         public List<TypeRuleSpec> typeRules = new ArrayList<>();
         public String partitionEvolution = "allow";
+    }
+
+    public static class AiSpec {
+        public String syncMode;
+        public String writeMode;
+        public List<String> metricFields = new ArrayList<>();
+        public List<String> enumFields = new ArrayList<>();
+        public List<String> timeFields = new ArrayList<>();
+        public Map<String, String> attributes = new LinkedHashMap<>();
     }
 
     public static class TypeRuleSpec {

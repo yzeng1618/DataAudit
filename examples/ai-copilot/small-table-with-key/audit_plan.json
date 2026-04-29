@@ -1,0 +1,23 @@
+{
+  "plan_version": "alpha-1",
+  "table_classification": {"table_type": "small_table", "scale_class": "small", "confidence": 0.88, "evidence": ["estimated_rows=1000"], "missing_information": ["none"]},
+  "semantic_analysis": {
+    "candidate_primary_keys": ["id"],
+    "partition_fields": [],
+    "time_fields": ["update_time"],
+    "metric_fields": [],
+    "enum_fields": ["status"],
+    "text_fields": ["status"],
+    "semi_structured_fields": []
+  },
+  "risk_analysis": [],
+  "recommended_steps": [
+    {"id": "global_row_count", "type": "global_row_count", "description": "全局行数核验", "sql_template": "select count(*) as row_count from ${table}", "confidence": 0.97, "evidence": ["deterministic_baseline"], "missing_information": ["none"], "mapping": {"step_id": "global_row_count", "capability": "summary_engine", "status": "SUPPORTED"}},
+    {"id": "global_checksum", "type": "global_checksum", "description": "全局 checksum 核验", "sql_template": "select checksum(${columns}) as checksum from ${table}", "confidence": 0.94, "evidence": ["deterministic_baseline"], "missing_information": ["none"], "mapping": {"step_id": "global_checksum", "capability": "summary_engine", "status": "SUPPORTED"}},
+    {"id": "enum_distribution_status", "type": "enum_distribution", "description": "status 枚举分布核验", "sql_template": "select status, count(*) from ${table} group by status", "confidence": 0.82, "evidence": ["enum_field:status"], "missing_information": ["none"], "mapping": {"step_id": "enum_distribution_status", "capability": "custom_distribution_template", "status": "PARTIAL"}}
+  ],
+  "data_audit_mapping": [],
+  "planner_trace": {"ai_provider": "disabled", "decisions": ["small table with explicit key"], "guardrail_actions": [], "knowledge_cases": []},
+  "deterministic_boundary": {"ai_consistency_conclusion": false},
+  "missing_information": []
+}

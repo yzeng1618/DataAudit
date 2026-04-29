@@ -1,0 +1,34 @@
+{
+  "plan_version": "alpha-1",
+  "table_classification": {
+    "table_type": "xlarge_partitioned_table",
+    "scale_class": "xlarge",
+    "confidence": 0.88,
+    "evidence": ["estimated_rows=500000000", "partition_field_detected"],
+    "missing_information": ["none"]
+  },
+  "semantic_analysis": {
+    "candidate_primary_keys": ["order_id", "user_id"],
+    "partition_fields": ["dt"],
+    "time_fields": ["create_time", "dt"],
+    "metric_fields": ["amount"],
+    "enum_fields": ["status"],
+    "text_fields": ["order_id", "status"],
+    "semi_structured_fields": []
+  },
+  "risk_analysis": [
+    {"field": "amount", "risk_type": "decimal_precision_risk", "confidence": 0.82, "evidence": ["numeric_type:decimal(20,2)"], "missing_information": ["normalize.decimal_scale"]},
+    {"field": "dt", "risk_type": "partition_overwrite_risk", "confidence": 0.86, "evidence": ["write_mode=overwrite"], "missing_information": ["target_snapshot_or_commit_files"]}
+  ],
+  "recommended_steps": [
+    {"id": "global_row_count", "type": "global_row_count", "description": "全局行数核验", "sql_template": "select count(*) as row_count from ${table}", "confidence": 0.97, "evidence": ["deterministic_baseline"], "missing_information": ["none"], "mapping": {"step_id": "global_row_count", "capability": "summary_engine", "status": "SUPPORTED"}},
+    {"id": "global_checksum", "type": "global_checksum", "description": "全局 checksum 核验", "sql_template": "select checksum(${columns}) as checksum from ${table}", "confidence": 0.94, "evidence": ["deterministic_baseline"], "missing_information": ["none"], "mapping": {"step_id": "global_checksum", "capability": "summary_engine", "status": "SUPPORTED"}},
+    {"id": "partition_checksum_dt", "type": "partition_checksum", "description": "按 dt 分区 checksum 核验", "sql_template": "select dt, checksum(${columns}) from ${table} group by dt", "confidence": 0.88, "evidence": ["partition_field:dt"], "missing_information": ["none"], "mapping": {"step_id": "partition_checksum_dt", "capability": "grouped_checksum", "status": "SUPPORTED"}},
+    {"id": "metric_sum_amount", "type": "metric_sum", "description": "amount SUM/MIN/MAX 核验", "sql_template": "select sum(amount), min(amount), max(amount) from ${table}", "confidence": 0.84, "evidence": ["metric_field:amount"], "missing_information": ["none"], "mapping": {"step_id": "metric_sum_amount", "capability": "custom_metric_template", "status": "PARTIAL"}}
+  ],
+  "data_audit_mapping": [],
+  "planner_trace": {"ai_provider": "disabled", "decisions": ["AI-first semantics with guardrail baseline"], "guardrail_actions": [], "knowledge_cases": ["iceberg-partition-overwrite"]},
+  "sync_context": {"write_mode": "overwrite", "timezone": "Asia/Shanghai"},
+  "deterministic_boundary": {"ai_consistency_conclusion": false, "notice": "AI only recommends deterministic checks; consistency status must come from DataAudit audit results."},
+  "missing_information": ["unique_or_distinct_count_evidence"]
+}

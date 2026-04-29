@@ -15,6 +15,7 @@
     <modules>
         <module>data-audit-spi</module>
         <module>data-audit-core</module>
+        <module>data-audit-ai</module>
         <module>data-audit-cli</module>
         <module>data-audit-connector-trino</module>
         <module>data-audit-connector-jdbc</module>
@@ -42,6 +43,7 @@
         <postgresql.version>42.7.4</postgresql.version>
         <mysql.version>8.2.0</mysql.version>
         <trino.version>471</trino.version>
+        <openai.java.version>4.33.0</openai.java.version>
     </properties>
 
     <dependencyManagement>
@@ -146,6 +148,11 @@
                 <groupId>io.trino</groupId>
                 <artifactId>trino-jdbc</artifactId>
                 <version>${trino.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.openai</groupId>
+                <artifactId>openai-java</artifactId>
+                <version>${openai.java.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.testcontainers</groupId>

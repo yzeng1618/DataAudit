@@ -1,0 +1,18 @@
+{
+  "analysis_version": "alpha-1",
+  "anomaly_summary": "确定性核验状态为 DIFF_FOUND，异常集中在 dt=2026-04-24。",
+  "possible_root_causes": [
+    {
+      "hypothesis": "可能是目标端分区 overwrite 覆盖范围不完整",
+      "confidence": 0.84,
+      "evidence": ["差异集中在分区:dt=2026-04-24", "write_mode=overwrite"],
+      "retrieved_cases": [{"id": "iceberg-partition-overwrite", "title": "Iceberg overwrite partition coverage", "score": 7.4}],
+      "recommended_checks": ["检查目标端 snapshot/commit 明细", "检查目标分区文件数量", "对异常分区执行 bucket diff"],
+      "missing_information": ["目标端 snapshot 文件列表", "sink commit 明细"]
+    }
+  ],
+  "retrieved_cases": [{"id": "iceberg-partition-overwrite", "title": "Iceberg overwrite partition coverage", "score": 7.4}],
+  "recommended_checks": ["检查目标端 snapshot/commit 明细", "检查目标分区文件数量", "对异常分区执行 bucket diff"],
+  "missing_information": ["目标端 snapshot 文件列表", "sink commit 明细"],
+  "ai_safety_notice": "该分析是概率性 AI 分析，只能提供可能原因和排查建议，不能替代 DataAudit 的确定性核验结果。"
+}

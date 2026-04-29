@@ -1,0 +1,9 @@
+{
+  "status": "DIFF_FOUND",
+  "source_count": 500000,
+  "target_count": 499800,
+  "diff_partition": "dt=2026-04-24",
+  "proof_mode": "GROUPED_CHECKSUM",
+  "confidence": "HIGH",
+  "logs": "overwrite partition dt=2026-04-24 sink commit success"
+}

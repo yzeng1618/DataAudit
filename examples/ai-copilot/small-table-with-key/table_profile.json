@@ -1,0 +1,17 @@
+{
+  "profile_version": "alpha-1",
+  "source": {"type": "jdbc", "table": "public.dim_status"},
+  "target": {"type": "jdbc", "table": "ads.dim_status"},
+  "columns": [
+    {"name": "id", "type": "bigint"},
+    {"name": "status", "type": "varchar"},
+    {"name": "update_time", "type": "timestamp"}
+  ],
+  "statistics": {"estimated_rows": 1000, "limited_collection": true, "max_sample_rows": 20, "max_sample_fields": 20, "timeout_millis": 3000},
+  "samples": [],
+  "sync_context": {"sync_mode": "batch", "timezone": "UTC"},
+  "boundary": {"type": "job_finish", "reference": "latest"},
+  "overrides": {"primary_keys": ["id"], "partition_fields": []},
+  "retrieval_hints": ["jdbc_to_jdbc"],
+  "missing_information": ["connector_schema_metadata_not_collected"]
+}

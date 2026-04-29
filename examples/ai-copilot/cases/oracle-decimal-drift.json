@@ -1,0 +1,11 @@
+{
+  "id": "oracle-decimal-drift",
+  "title": "Oracle decimal precision drift",
+  "source_type": "oracle",
+  "target_type": "jdbc",
+  "symptoms": ["checksum mismatch", "decimal precision drift"],
+  "evidence_patterns": ["decimal", "precision", "scale", "checksum"],
+  "likely_causes": ["可能是 decimal precision/scale 映射或 normalization 配置不一致"],
+  "recommended_checks": ["检查 normalize.decimal_scale", "对金额字段执行 SUM/MIN/MAX 和 scale 分布检查"],
+  "tags": ["oracle", "decimal", "checksum", "precision"]
+}

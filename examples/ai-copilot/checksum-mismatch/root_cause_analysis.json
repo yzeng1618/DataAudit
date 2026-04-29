@@ -1,0 +1,18 @@
+{
+  "analysis_version": "alpha-1",
+  "anomaly_summary": "确定性核验状态为 DIFF_FOUND，global checksum 不一致。",
+  "possible_root_causes": [
+    {
+      "hypothesis": "可能是 decimal precision/scale 或 normalization 配置差异导致 checksum 不一致",
+      "confidence": 0.68,
+      "evidence": ["确定性结果显示 checksum mismatch", "日志包含 decimal amount"],
+      "retrieved_cases": [{"id": "oracle-decimal-drift", "title": "Oracle decimal precision drift", "score": 5.2}],
+      "recommended_checks": ["检查 normalize.decimal_scale", "对 amount 执行 SUM/MIN/MAX"],
+      "missing_information": ["字段级 checksum", "decimal scale 配置"]
+    }
+  ],
+  "retrieved_cases": [{"id": "oracle-decimal-drift", "title": "Oracle decimal precision drift", "score": 5.2}],
+  "recommended_checks": ["检查 normalize.decimal_scale", "对 amount 执行 SUM/MIN/MAX"],
+  "missing_information": ["字段级 checksum"],
+  "ai_safety_notice": "该分析是概率性 AI 分析，只能提供可能原因和排查建议，不能替代 DataAudit 的确定性核验结果。"
+}

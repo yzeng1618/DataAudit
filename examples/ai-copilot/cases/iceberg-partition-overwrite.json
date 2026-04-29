@@ -1,0 +1,11 @@
+{
+  "id": "iceberg-partition-overwrite",
+  "title": "Iceberg overwrite partition coverage",
+  "target_type": "iceberg",
+  "write_mode": "overwrite",
+  "symptoms": ["target row count lower", "partition diff", "overwrite partition"],
+  "evidence_patterns": ["overwrite", "partition", "target_count", "sink commit", "dt"],
+  "likely_causes": ["可能是 overwrite 分区覆盖范围不完整或提交快照缺失部分文件"],
+  "recommended_checks": ["检查 Iceberg snapshot", "检查目标分区文件数量", "对异常分区执行 bucket diff"],
+  "tags": ["iceberg", "overwrite", "partition", "row_count"]
+}

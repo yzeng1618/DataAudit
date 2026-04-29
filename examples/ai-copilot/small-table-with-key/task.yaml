@@ -1,0 +1,24 @@
+task:
+  name: dim_status_small_with_key
+  mode: post_check
+source:
+  type: jdbc
+  table: public.dim_status
+target:
+  type: jdbc
+  table: ads.dim_status
+object:
+  key:
+    - id
+  estimated_rows: 1000
+  columns:
+    - id
+    - status
+    - update_time
+normalize:
+  timezone: UTC
+semantics:
+  ai:
+    sync_mode: batch
+output:
+  dir: ./reports/ai-copilot/dim_status_small_with_key

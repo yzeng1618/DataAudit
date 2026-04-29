@@ -8,3 +8,6 @@ reports/
 .tools/
 .tmp/
 .worktrees/
+.env
+.env.*
+*.local

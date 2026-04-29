@@ -1,0 +1,7 @@
+{
+  "status": "DIFF_FOUND",
+  "checksum_equal": false,
+  "proof_mode": "GLOBAL_CHECKSUM",
+  "confidence": "HIGH",
+  "logs": "decimal amount checksum mismatch after Oracle to target load"
+}

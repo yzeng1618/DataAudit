@@ -1,0 +1,18 @@
+{
+  "analysis_version": "alpha-1",
+  "anomaly_summary": "确定性核验状态为 DIFF_FOUND，日志包含 embedding_dim expected=1536 actual=1024。",
+  "possible_root_causes": [
+    {
+      "hypothesis": "可能是 embedding 模型版本或向量维度不一致导致 checksum 不一致",
+      "confidence": 0.82,
+      "evidence": ["日志或指标包含 embedding_dim", "确定性结果显示 checksum 异常"],
+      "retrieved_cases": [{"id": "embedding-dimension-mismatch", "title": "RAG dataset embedding_dim mismatch", "score": 8.0}],
+      "recommended_checks": ["检查 embedding_dim 分布", "检查 embedding 模型版本", "对向量字段执行维度/null 率检查"],
+      "missing_information": ["源端和目标端 embedding 模型版本", "向量字段 schema 明细"]
+    }
+  ],
+  "retrieved_cases": [{"id": "embedding-dimension-mismatch", "title": "RAG dataset embedding_dim mismatch", "score": 8.0}],
+  "recommended_checks": ["检查 embedding_dim 分布", "检查 embedding 模型版本", "对向量字段执行维度/null 率检查"],
+  "missing_information": ["源端和目标端 embedding 模型版本", "向量字段 schema 明细"],
+  "ai_safety_notice": "该分析是概率性 AI 分析，只能提供可能原因和排查建议，不能替代 DataAudit 的确定性核验结果。"
+}
