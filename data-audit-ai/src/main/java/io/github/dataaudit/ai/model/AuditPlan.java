@@ -1,9 +1,15 @@
 package io.github.dataaudit.ai.model;
 
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
 public class AuditPlan {
+    public String artifactVersion = "1";
+    public String artifactType = "ai_audit_plan";
+    public String producer = "data-audit-ai";
+    public String schemaVersion = "data-audit-ai-audit-plan-v1";
+    public OffsetDateTime createdAt = OffsetDateTime.now();
     public String planVersion = "alpha-1";
     public TableClassification tableClassification = new TableClassification();
     public SemanticAnalysis semanticAnalysis = new SemanticAnalysis();

@@ -330,6 +330,7 @@ public class ExecutionService {
 
     private ReportModel baseReport(TaskFileSpec spec, ExecutionPlan plan) {
         ReportModel report = new ReportModel();
+        report.taskName = spec.task.name;
         report.plan.taskName = spec.task.name;
         report.plan.scaleClass = plan.scaleClass;
         report.plan.signalStrategy = plan.signalStrategy;

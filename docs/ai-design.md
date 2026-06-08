@@ -899,3 +899,99 @@ Tests should cover:
 - All five required examples.
 
 The first implementation should keep tests deterministic by using rule mode and mock AI responses.
+
+## 16. V3 Multi-Agent Direction
+
+This section is forward-looking. It describes the next architecture layer that
+can evolve from the current v2 orchestrators. It is not yet a hard product
+contract.
+
+The SeaTunnel commit you referenced
+([e0c0950](https://github.com/apache/seatunnel/commit/e0c09508bc159973d3bd55403c5ff8656a33e909))
+is useful less for its domain and more for its shape: a narrow intent
+planner, a knowledge/router step, metadata completion, validation, and a
+bounded repair loop. DataAudit v3 can borrow that same shape while keeping the
+audit boundary intact.
+
+### 16.1 Why V3
+
+v2 already has the right trust boundary, but each stage still lives mostly
+inside one orchestrator. That is fine for Alpha, yet it forces planning,
+evidence collection, validation, repair, and report rendering to compete for
+the same context.
+
+V3 should split those concerns into specialist roles with one responsibility
+each and a strict handoff schema. The goal is not to make the system more
+chatty. The goal is to make it easier to reason about, validate, retry, and
+fallback.
+
+### 16.2 Suggested Agent Roles
+
+| Role | Responsibility | Input | Output |
+| --- | --- | --- | --- |
+| Intent Router | Classify the command path and choose the pipeline | CLI command, task intent, current artifacts | Route decision |
+| Profile Agent | Build or refresh `table_profile.json` from task config, connectors, signals, and masked samples | `task.yaml`, connector evidence, runtime metadata | Normalized profile + missing info |
+| Planning Agent | Propose strategy and step order from profile, cases, and constraints | Profile, RAG cases, deterministic constraints | `audit_plan.json` proposal |
+| Validation Agent | Check structure, safety, proof boundary, and guardrails | Proposal artifact | Pass / repair hints / reject |
+| Analysis Agent | Convert deterministic result into anomaly features and root-cause hypotheses | `audit_plan.json`, result/report, logs, metrics | `root_cause_analysis.json` proposal |
+| Report Agent | Rewrite locked facts for technical / acceptance / management audiences | Plan, result, analysis | Markdown report |
+| Repair Agent | Produce config-only repair guidance and rerun suggestions | Plan, result, analysis, task config | Repair plan + optional patched task copy |
+| Coordinator | Own sequencing, retries, and fallback | All intermediate artifacts | Final artifact set |
+
+These roles do not all have to be LLM-backed. Some can stay rule-backed when
+`provider=disabled`, and only escalate to the model when a proposal is needed.
+
+### 16.3 Shared Workbench and Handoffs
+
+Each role should exchange structured packets, not open-ended chat. A packet
+should carry:
+
+- `task_id`
+- `role`
+- `input_artifacts`
+- `constraints`
+- `evidence_pack`
+- `output_schema`
+- `confidence`
+- `missing_information`
+- `next_action`
+
+The coordinator freezes shared facts once they are validated. Later agents may
+interpret them, but they must not rewrite them.
+
+### 16.4 Retry and Repair Loop
+
+Borrow the idea of bounded correction rounds from SeaTunnel, but keep the loop
+short and explicit.
+
+Suggested loop:
+
+1. collect evidence and route the task
+2. generate a proposal
+3. validate the proposal
+4. if validation fails, send only the failing slice back to the responsible role
+5. stop after a small bounded number of rounds and fall back to the v2
+   deterministic path
+
+The point is to fix structure, missing fields, and safety issues. The loop must
+not become an unbounded conversational repair session.
+
+### 16.5 Guardrails for Multi-Agent Mode
+
+- No agent may declare deterministic consistency.
+- No agent may emit mutation SQL or unsafe repair actions.
+- No agent may overwrite locked facts from deterministic audit results.
+- If a role fails schema validation, the coordinator must reject the artifact
+  rather than merge it.
+- If the multi-agent path cannot converge, the system falls back to the current
+  v2 orchestrators.
+
+### 16.6 What This Means for the Current Codebase
+
+Today the code already has the right stepping stones:
+`ProfileCollector`, `PlanningOrchestrator`, `RootCauseOrchestrator`,
+`ReportOrchestrator`, `RepairPlanner`, `RagRetriever`, and the guardrail layer.
+
+V3 should not replace those pieces wholesale. It should refactor them into
+clearer role boundaries, with the coordinator composing the same capabilities
+in a more explicit multi-agent graph.

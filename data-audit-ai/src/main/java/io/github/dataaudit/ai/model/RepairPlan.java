@@ -1,9 +1,15 @@
 package io.github.dataaudit.ai.model;
 
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
 public class RepairPlan {
+    public String artifactVersion = "1";
+    public String artifactType = "repair_plan";
+    public String producer = "data-audit-ai";
+    public String schemaVersion = "data-audit-repair-plan-v1";
+    public OffsetDateTime createdAt = OffsetDateTime.now();
     public String repairVersion = "alpha-1";
     public String deterministicStatus;
     public List<RepairAction> actions = new ArrayList<>();

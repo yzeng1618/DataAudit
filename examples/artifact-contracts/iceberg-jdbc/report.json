@@ -1,0 +1,44 @@
+{
+  "artifact_version": "1",
+  "artifact_type": "report",
+  "producer": "data-audit-cli",
+  "schema_version": "data-audit-report-v1",
+  "run_id": "fixture-iceberg-jdbc",
+  "task_name": "fixture_iceberg_jdbc",
+  "generated_at": "2026-06-08T00:00:00Z",
+  "created_at": "2026-06-08T00:00:00Z",
+  "plan": {
+    "task_name": "fixture_iceberg_jdbc",
+    "scale_class": "LARGE",
+    "signal_strategy": "global_row_count_plus_grouped_checksum",
+    "localization_strategy": "partition_window",
+    "decision_trace": ["fixture contract: iceberg to jdbc"],
+    "boundary": {"type": "snapshot", "reference": "latest", "fingerprint": "snapshot:latest", "stable": true},
+    "reason": "artifact contract fixture"
+  },
+  "result": {
+    "status": "DIFF_FOUND",
+    "root_cause": "row_count_mismatch",
+    "proof_mode": "EXACT_DIFF",
+    "confidence": "EXACT",
+    "no_key_mode": false,
+    "fallback_reason": null,
+    "sampling_summary": {},
+    "suspect_slices": [{"slice_key": "dt=2026-06-08", "slice_type": "partition", "drilldownable": true, "reason": "row_count_mismatch"}],
+    "resume_hint": "data-audit diff -f task.yaml --slice dt=2026-06-08",
+    "source_summary": {"row_count": 1000, "checksum": "1000:1", "null_count": {}, "min_values": {}, "max_values": {}, "distinct_count": {}},
+    "target_summary": {"row_count": 998, "checksum": "998:2", "null_count": {}, "min_values": {}, "max_values": {}, "distinct_count": {}},
+    "diff": {
+      "consistent": false,
+      "root_cause": "keyed_diff_detected",
+      "sampled": false,
+      "samples": [{"type": "missing_in_target", "key": "order_id=99", "source_value": "order_id=99", "target_value": null, "slice_key": "dt=2026-06-08"}]
+    }
+  },
+  "evidence": {
+    "notes": ["fixture only"],
+    "global_signal": {},
+    "localization": {},
+    "exact_diff": {}
+  }
+}

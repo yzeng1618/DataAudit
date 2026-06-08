@@ -1,9 +1,15 @@
 package io.github.dataaudit.ai.model;
 
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
 public class RootCauseAnalysis {
+    public String artifactVersion = "1";
+    public String artifactType = "root_cause_analysis";
+    public String producer = "data-audit-ai";
+    public String schemaVersion = "data-audit-root-cause-analysis-v1";
+    public OffsetDateTime createdAt = OffsetDateTime.now();
     public String analysisVersion = "alpha-1";
     public String anomalySummary;
     public List<PossibleCause> possibleRootCauses = new ArrayList<>();

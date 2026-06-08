@@ -38,6 +38,7 @@ public class JsonHtmlReportWriter implements ReportWriter {
     @Override
     public ReportArtifacts write(ReportModel report, Path outputDir) throws Exception {
         Files.createDirectories(outputDir);
+        prepareArtifactMetadata(report);
         Path jsonPath = outputDir.resolve("report.json");
         Path htmlPath = outputDir.resolve("report.html");
         Path suspectPath = outputDir.resolve("suspect_slices.csv");
@@ -59,6 +60,18 @@ public class JsonHtmlReportWriter implements ReportWriter {
         writeSegmentsCsv(report, suspectPath);
         writeSamplesCsv(report, samplePath);
         return new ReportArtifacts(jsonPath, htmlPath);
+    }
+
+    private void prepareArtifactMetadata(ReportModel report) {
+        if (report == null) {
+            return;
+        }
+        if (report.taskName == null && report.plan != null) {
+            report.taskName = report.plan.taskName;
+        }
+        if (report.createdAt == null) {
+            report.createdAt = report.generatedAt;
+        }
     }
 
     private void writeSegmentsCsv(ReportModel report, Path path) throws Exception {

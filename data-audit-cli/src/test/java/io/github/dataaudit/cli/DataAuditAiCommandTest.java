@@ -142,6 +142,41 @@ class DataAuditAiCommandTest {
     }
 
     @Test
+    void shouldWriteAiSidecarArtifactMetadataWithoutMutatingDeterministicReport() throws Exception {
+        TaskFileSpec spec = taskSpec();
+        ReportModel report = new ReportModel();
+        report.runId = "deterministic-run";
+        report.result.status = "DIFF_FOUND";
+        report.result.rootCause = "value_mismatch";
+        report.result.proofMode = ProofMode.EXACT_DIFF;
+        report.result.confidence = ConfidenceLevel.EXACT;
+        SliceDescriptor slice = new SliceDescriptor();
+        slice.sliceKey = "dt=2026-04-24";
+        report.result.suspectSlices.add(slice);
+
+        DataAuditMain.AiReportArtifacts artifacts = DataAuditMain.writeAiReportSidecars(
+                spec,
+                report,
+                new DataAuditMain.AiProviderOptions(),
+                new DataAuditMain.ProfileOptions(),
+                "technical",
+                null);
+
+        assertEquals("DIFF_FOUND", report.result.status);
+        assertEquals("value_mismatch", report.result.rootCause);
+        assertEquals(ProofMode.EXACT_DIFF, report.result.proofMode);
+        assertEquals(ConfidenceLevel.EXACT, report.result.confidence);
+        assertEquals("dt=2026-04-24", report.result.suspectSlices.get(0).sliceKey);
+
+        JsonNode profile = mapper.readTree(artifacts.profile.toFile());
+        JsonNode plan = mapper.readTree(artifacts.plan.toFile());
+        JsonNode analysis = mapper.readTree(artifacts.analysis.toFile());
+        assertSidecarMetadata(profile, "table_profile", "data-audit-table-profile-v1");
+        assertSidecarMetadata(plan, "ai_audit_plan", "data-audit-ai-audit-plan-v1");
+        assertSidecarMetadata(analysis, "root_cause_analysis", "data-audit-root-cause-analysis-v1");
+    }
+
+    @Test
     void shouldGenerateRepairPlanAndAnswerQuestion() throws Exception {
         Path task = writeTask("orders_with_key.yaml", true);
         Path planFile = tempDir.resolve("audit_plan.json");
@@ -248,5 +283,13 @@ class DataAuditAiCommandTest {
         spec.semantics.ai.writeMode = "overwrite";
         spec.output.dir = tempDir.resolve("integrated-reports").toString();
         return spec;
+    }
+
+    private void assertSidecarMetadata(JsonNode root, String artifactType, String schemaVersion) {
+        assertEquals("1", root.path("artifact_version").asText());
+        assertEquals(artifactType, root.path("artifact_type").asText());
+        assertEquals("data-audit-ai", root.path("producer").asText());
+        assertEquals(schemaVersion, root.path("schema_version").asText());
+        assertFalse(root.path("created_at").asText().isBlank());
     }
 }

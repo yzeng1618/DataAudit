@@ -9,6 +9,12 @@ import java.util.Map;
 public class ReportModel {
     public String runId;
     public OffsetDateTime generatedAt = OffsetDateTime.now();
+    public String artifactVersion = "1";
+    public String artifactType = "report";
+    public String producer = "data-audit-cli";
+    public String schemaVersion = "data-audit-report-v1";
+    public String taskName;
+    public OffsetDateTime createdAt = generatedAt;
     public PlanSection plan = new PlanSection();
     public ResultSection result = new ResultSection();
     public EvidenceSection evidence = new EvidenceSection();
@@ -19,6 +25,30 @@ public class ReportModel {
 
     public OffsetDateTime getGeneratedAt() {
         return generatedAt;
+    }
+
+    public String getArtifactVersion() {
+        return artifactVersion;
+    }
+
+    public String getArtifactType() {
+        return artifactType;
+    }
+
+    public String getProducer() {
+        return producer;
+    }
+
+    public String getSchemaVersion() {
+        return schemaVersion;
+    }
+
+    public String getTaskName() {
+        return taskName;
+    }
+
+    public OffsetDateTime getCreatedAt() {
+        return createdAt;
     }
 
     public PlanSection getPlan() {

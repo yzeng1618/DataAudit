@@ -1,0 +1,39 @@
+{
+  "artifact_version": "1",
+  "artifact_type": "report",
+  "producer": "data-audit-cli",
+  "schema_version": "data-audit-report-v1",
+  "run_id": "fixture-jdbc-jdbc",
+  "task_name": "fixture_jdbc_jdbc",
+  "generated_at": "2026-06-08T00:00:00Z",
+  "created_at": "2026-06-08T00:00:00Z",
+  "plan": {
+    "task_name": "fixture_jdbc_jdbc",
+    "scale_class": "SMALL",
+    "signal_strategy": "global_row_count_plus_checksum",
+    "localization_strategy": "none",
+    "decision_trace": ["fixture contract: jdbc to jdbc"],
+    "boundary": {"type": "job_finish", "reference": "latest", "fingerprint": "job_finish:latest", "stable": true},
+    "reason": "artifact contract fixture"
+  },
+  "result": {
+    "status": "CONSISTENT",
+    "root_cause": null,
+    "proof_mode": "GLOBAL_CHECKSUM",
+    "confidence": "HIGH",
+    "no_key_mode": false,
+    "fallback_reason": null,
+    "sampling_summary": {},
+    "suspect_slices": [],
+    "resume_hint": null,
+    "source_summary": {"row_count": 100, "checksum": "100:1", "null_count": {}, "min_values": {}, "max_values": {}, "distinct_count": {}},
+    "target_summary": {"row_count": 100, "checksum": "100:1", "null_count": {}, "min_values": {}, "max_values": {}, "distinct_count": {}},
+    "diff": {"consistent": true, "root_cause": "consistent", "sampled": false, "samples": []}
+  },
+  "evidence": {
+    "notes": ["fixture only"],
+    "global_signal": {},
+    "localization": {},
+    "exact_diff": {}
+  }
+}

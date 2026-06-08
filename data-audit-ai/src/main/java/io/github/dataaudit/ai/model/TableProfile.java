@@ -1,11 +1,17 @@
 package io.github.dataaudit.ai.model;
 
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 public class TableProfile {
+    public String artifactVersion = "1";
+    public String artifactType = "table_profile";
+    public String producer = "data-audit-ai";
+    public String schemaVersion = "data-audit-table-profile-v1";
+    public OffsetDateTime createdAt = OffsetDateTime.now();
     public String profileVersion = "alpha-1";
     public EndpointProfile source = new EndpointProfile();
     public EndpointProfile target = new EndpointProfile();
