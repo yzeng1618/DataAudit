@@ -255,7 +255,7 @@ public class JdbcConnectorFactory implements ConnectorFactory {
         }
 
         private void applyStatementTuning(PreparedStatement statement) throws SQLException {
-            int queryTimeoutSeconds = readIntOption("query_timeout_seconds", 0);
+            int queryTimeoutSeconds = readIntOption("query_timeout_seconds", resourceQueryTimeoutSeconds());
             if (queryTimeoutSeconds > 0) {
                 statement.setQueryTimeout(queryTimeoutSeconds);
             }
@@ -281,6 +281,15 @@ public class JdbcConnectorFactory implements ConnectorFactory {
             } catch (NumberFormatException ignored) {
                 return defaultValue;
             }
+        }
+
+        private int resourceQueryTimeoutSeconds() {
+            if (spec.resources == null || spec.resources.queryTimeoutMillis == null || spec.resources.queryTimeoutMillis <= 0L) {
+                return 0;
+            }
+            long millis = spec.resources.queryTimeoutMillis;
+            long seconds = (millis / 1000L) + (millis % 1000L == 0L ? 0L : 1L);
+            return (int) Math.min(Integer.MAX_VALUE, Math.max(1L, seconds));
         }
 
         private String baseSql() {

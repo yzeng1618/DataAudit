@@ -11,3 +11,8 @@ reports/
 .env
 .env.*
 *.local
+__pycache__/
+.pytest_cache/
+*.pyc
+hs_err_pid*.log
+replay_pid*.log

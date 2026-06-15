@@ -22,6 +22,8 @@ class LocalCaseRetrieverTest {
                 {
                   "id": "custom-boundary-case",
                   "title": "Custom incremental boundary case",
+                  "source_type": "jdbc",
+                  "target_type": "jdbc",
                   "sync_mode": "incremental",
                   "symptoms": ["boundary miss"],
                   "evidence_patterns": ["boundary"],

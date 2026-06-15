@@ -570,27 +570,59 @@ docker build -t data-audit:local .
 
 ```bash
 docker run --rm \
-  -v /opt/data-audit/tasks:/app/tasks \
-  -v /opt/data-audit/reports:/app/reports \
-  -v /opt/data-audit/state:/app/state \
+  -v /opt/data-audit/tasks:/tasks \
+  -v /opt/data-audit/reports:/reports \
+  -v /opt/data-audit/state:/state \
+  -v /opt/data-audit/logs:/logs \
   -e SRC_PASSWORD='***' \
   -e TGT_PASSWORD='***' \
   data-audit:local \
-  plan -f /app/tasks/task.yaml
+  version
+```
+
+计划验证：
+
+```bash
+docker run --rm \
+  -v /opt/data-audit/tasks:/tasks \
+  -v /opt/data-audit/reports:/reports \
+  -v /opt/data-audit/state:/state \
+  -v /opt/data-audit/logs:/logs \
+  -e SRC_PASSWORD='***' \
+  -e TGT_PASSWORD='***' \
+  data-audit:local \
+  plan -f /tasks/task.yaml
 ```
 
 正式执行：
 
 ```bash
 docker run --rm \
-  -v /opt/data-audit/tasks:/app/tasks \
-  -v /opt/data-audit/reports:/app/reports \
-  -v /opt/data-audit/state:/app/state \
+  -v /opt/data-audit/tasks:/tasks \
+  -v /opt/data-audit/reports:/reports \
+  -v /opt/data-audit/state:/state \
+  -v /opt/data-audit/logs:/logs \
   -e SRC_PASSWORD='***' \
   -e TGT_PASSWORD='***' \
   data-audit:local \
-  check -f /app/tasks/task.yaml
+  check -f /tasks/task.yaml
 ```
+
+查看报告：
+
+```bash
+docker run --rm \
+  -v /opt/data-audit/reports:/reports \
+  data-audit:local \
+  report show /reports/<task-name>/report.json
+```
+
+容器镜像声明了 `/tasks`、`/reports`、`/state`、`/logs` 四个运行目录。
+任务 YAML 中的 JDBC URL、用户名、密码、Trino query connector URI/用户名/密码
+以及 Iceberg URI/warehouse/location 等运行时字段支持 `${ENV_VAR}` 展开。
+生产配置建议只在 YAML 中保留 `${SRC_PASSWORD}`、`${TGT_PASSWORD}` 这类引用，
+真实值通过容器环境变量或调度器 secret 注入；缺失变量会在打开 connector 前以退出码 `2`
+失败，输出只包含变量名和字段路径，不会打印展开后的 secret。
 
 #### 4.3 推荐的服务器验证顺序
 

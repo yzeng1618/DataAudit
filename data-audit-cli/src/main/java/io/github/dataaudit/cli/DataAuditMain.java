@@ -17,10 +17,15 @@ import io.github.dataaudit.ai.profile.ProfileCollector;
 import io.github.dataaudit.ai.profile.ProfileCollectionOptions;
 import io.github.dataaudit.ai.profile.ProfileQualityGate;
 import io.github.dataaudit.ai.profile.ProfileReviewMarkdownWriter;
-import io.github.dataaudit.ai.rag.HashingEmbeddingClient;
+import io.github.dataaudit.ai.rag.EmbeddingClient;
+import io.github.dataaudit.ai.rag.EmbeddingClientFactory;
+import io.github.dataaudit.ai.rag.EmbeddingProviderConfig;
 import io.github.dataaudit.ai.rag.HybridCaseRetriever;
 import io.github.dataaudit.ai.rag.LocalCaseRetriever;
 import io.github.dataaudit.ai.rag.RagRetriever;
+import io.github.dataaudit.ai.rag.VectorStore;
+import io.github.dataaudit.ai.rag.VectorStoreCaseRetriever;
+import io.github.dataaudit.ai.rag.VectorStoreFactory;
 import io.github.dataaudit.ai.rag.VectorCaseRetriever;
 import io.github.dataaudit.ai.repair.RepairPlanner;
 import io.github.dataaudit.ai.qa.CopilotQaService;
@@ -61,6 +66,11 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.Callable;
+import java.util.function.Function;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.jar.Attributes;
+import java.util.jar.Manifest;
 
 @Command(
         name = "data-audit",
@@ -71,10 +81,13 @@ import java.util.concurrent.Callable;
                 DataAuditMain.CheckCommand.class,
                 DataAuditMain.DiffCommand.class,
                 DataAuditMain.ReportCommand.class,
-                DataAuditMain.AiCommand.class
+                DataAuditMain.AiCommand.class,
+                DataAuditMain.VersionCommand.class
         }
 )
 public class DataAuditMain implements Runnable {
+    private static final Pattern ENV_PLACEHOLDER = Pattern.compile("\\$\\{([A-Za-z_][A-Za-z0-9_]*)}");
+
     public static void main(String[] args) {
         int exitCode = new CommandLine(new DataAuditMain()).execute(args);
         System.exit(exitCode);
@@ -92,7 +105,7 @@ public class DataAuditMain implements Runnable {
 
         @Override
         public Integer call() throws Exception {
-            TaskFileSpec spec = loadSpec(taskFile);
+            TaskFileSpec spec = loadExecutionSpec(taskFile);
             ExecutionService service = newExecutionService(spec);
             ExecutionPlan plan = service.plan(spec);
             System.out.println(objectMapper().writeValueAsString(plan));
@@ -123,7 +136,7 @@ public class DataAuditMain implements Runnable {
 
         @Override
         public Integer call() throws Exception {
-            TaskFileSpec spec = loadSpec(taskFile);
+            TaskFileSpec spec = loadExecutionSpec(taskFile);
             ExecutionService service = newExecutionService(spec);
             ReportModel report = service.check(spec);
             if (aiReport) {
@@ -158,7 +171,7 @@ public class DataAuditMain implements Runnable {
 
         @Override
         public Integer call() throws Exception {
-            TaskFileSpec spec = loadSpec(taskFile);
+            TaskFileSpec spec = loadExecutionSpec(taskFile);
             ExecutionService service = newExecutionService(spec);
             ReportModel report = service.diff(spec, slice);
             printSummary(report);
@@ -212,6 +225,24 @@ public class DataAuditMain implements Runnable {
 
         @Option(names = "--rag-mode", description = "lexical, vector, or hybrid")
         String ragMode = env("DATAAUDIT_AI_RAG_MODE", "hybrid");
+
+        @Option(names = "--rag-embedding-provider", description = "local-hashing or http-json")
+        String ragEmbeddingProvider = env("DATAAUDIT_AI_RAG_EMBEDDING_PROVIDER", "local-hashing");
+
+        @Option(names = "--rag-embedding-endpoint", description = "HTTP JSON embedding provider endpoint")
+        String ragEmbeddingEndpoint = env("DATAAUDIT_AI_RAG_EMBEDDING_ENDPOINT", null);
+
+        @Option(names = "--rag-embedding-api-key", description = "embedding provider API key")
+        String ragEmbeddingApiKey = env("DATAAUDIT_AI_RAG_EMBEDDING_API_KEY", null);
+
+        @Option(names = "--rag-embedding-model", description = "embedding provider model")
+        String ragEmbeddingModel = env("DATAAUDIT_AI_RAG_EMBEDDING_MODEL", null);
+
+        @Option(names = "--rag-embedding-fail-fast", description = "fail instead of falling back to local hashing when external embedding fails")
+        boolean ragEmbeddingFailFast = envBool("DATAAUDIT_AI_RAG_EMBEDDING_FAIL_FAST", false);
+
+        @Option(names = "--rag-vector-store", description = "optional vector store backend, currently local-memory")
+        String ragVectorStore = env("DATAAUDIT_AI_RAG_VECTOR_STORE", null);
     }
 
     static class ProfileOptions {
@@ -308,7 +339,7 @@ public class DataAuditMain implements Runnable {
             }
             AuditPlan plan = new PlanningOrchestrator(
                     aiConfig(aiProviderOptions),
-                    ragRetriever(aiProviderOptions.ragCorpus, aiProviderOptions.ragMode)).plan(profile);
+                    ragRetriever(aiProviderOptions)).plan(profile);
             writeJson(output, plan);
             System.out.println("Profile status: CONFIRMED");
             System.out.println("Audit plan written: " + output);
@@ -336,7 +367,7 @@ public class DataAuditMain implements Runnable {
             Map<String, Object> result = readJsonMap(resultFile);
             RootCauseAnalysis analysis = new RootCauseOrchestrator(
                     aiConfig(aiProviderOptions),
-                    ragRetriever(aiProviderOptions.ragCorpus, aiProviderOptions.ragMode))
+                    ragRetriever(aiProviderOptions))
                     .analyze(plan, result);
             writeJson(output, analysis);
             System.out.println("Root cause analysis written: " + output);
@@ -463,6 +494,19 @@ public class DataAuditMain implements Runnable {
         }
     }
 
+    @Command(name = "version", description = "Print build and runtime metadata.")
+    static class VersionCommand implements Callable<Integer> {
+        @Override
+        public Integer call() {
+            BuildMetadata metadata = BuildMetadata.load();
+            System.out.println("version=" + metadata.version);
+            System.out.println("build_time=" + metadata.buildTime);
+            System.out.println("commit_id=" + metadata.commitId);
+            System.out.println("java_version=" + safeMetadata(System.getProperty("java.version")));
+            return 0;
+        }
+    }
+
     private static ExecutionService newExecutionService(TaskFileSpec spec) {
         NormalizationService normalizationService = new NormalizationService();
         SummaryEngine summaryEngine = new SummaryEngine(normalizationService, new HashProvider());
@@ -483,12 +527,82 @@ public class DataAuditMain implements Runnable {
         );
     }
 
-    private static TaskFileSpec loadSpec(Path taskFile) throws Exception {
+    private static TaskFileSpec loadExecutionSpec(Path taskFile) throws Exception {
+        TaskFileSpec spec = loadSpec(taskFile);
+        List<String> issues = new SpecValidator().validate(spec);
+        if (!issues.isEmpty()) {
+            throw configurationError("Invalid task spec: " + String.join("; ", issues));
+        }
+        return spec;
+    }
+
+    static TaskFileSpec loadSpec(Path taskFile) throws Exception {
+        return loadSpec(taskFile, System::getenv);
+    }
+
+    static TaskFileSpec loadSpec(Path taskFile, Function<String, String> envLookup) throws Exception {
         try (InputStream inputStream = Files.newInputStream(taskFile)) {
             Yaml yaml = new Yaml();
             Map<String, Object> raw = yaml.load(inputStream);
-            return objectMapper().convertValue(raw, TaskFileSpec.class);
+            TaskFileSpec spec = objectMapper().convertValue(raw, TaskFileSpec.class);
+            expandRuntimeEnvironment(spec, envLookup);
+            return spec;
         }
+    }
+
+    private static void expandRuntimeEnvironment(TaskFileSpec spec, Function<String, String> envLookup) {
+        if (spec == null) {
+            return;
+        }
+        expandQueryConnector(spec.queryConnector, envLookup);
+        expandEndpoint("source", spec.source, envLookup);
+        expandEndpoint("target", spec.target, envLookup);
+    }
+
+    private static void expandQueryConnector(TaskFileSpec.QueryConnectorSpec connector,
+                                             Function<String, String> envLookup) {
+        if (connector == null) {
+            return;
+        }
+        connector.uri = expandEnv(connector.uri, "query_connector.uri", envLookup);
+        connector.user = expandEnv(connector.user, "query_connector.user", envLookup);
+        connector.password = expandEnv(connector.password, "query_connector.password", envLookup);
+    }
+
+    private static void expandEndpoint(String label,
+                                       TaskFileSpec.EndpointSpec endpoint,
+                                       Function<String, String> envLookup) {
+        if (endpoint == null) {
+            return;
+        }
+        endpoint.url = expandEnv(endpoint.url, label + ".url", envLookup);
+        endpoint.username = expandEnv(endpoint.username, label + ".username", envLookup);
+        endpoint.password = expandEnv(endpoint.password, label + ".password", envLookup);
+        endpoint.uri = expandEnv(endpoint.uri, label + ".uri", envLookup);
+        endpoint.warehouse = expandEnv(endpoint.warehouse, label + ".warehouse", envLookup);
+        endpoint.location = expandEnv(endpoint.location, label + ".location", envLookup);
+    }
+
+    private static String expandEnv(String value, String fieldPath, Function<String, String> envLookup) {
+        if (value == null || value.isEmpty()) {
+            return value;
+        }
+        Matcher matcher = ENV_PLACEHOLDER.matcher(value);
+        StringBuffer expanded = new StringBuffer();
+        while (matcher.find()) {
+            String name = matcher.group(1);
+            String replacement = envLookup.apply(name);
+            if (replacement == null) {
+                throw configurationError("Missing environment variable " + name + " referenced by " + fieldPath);
+            }
+            matcher.appendReplacement(expanded, Matcher.quoteReplacement(replacement));
+        }
+        matcher.appendTail(expanded);
+        return expanded.toString();
+    }
+
+    private static CommandLine.ParameterException configurationError(String message) {
+        return new CommandLine.ParameterException(new CommandLine(new DataAuditMain()), message);
     }
 
     static AiReportArtifacts writeAiReportSidecars(TaskFileSpec spec,
@@ -517,7 +631,7 @@ public class DataAuditMain implements Runnable {
         }
 
         AiWorkflowConfig config = aiConfig(aiProviderOptions);
-        RagRetriever retriever = ragRetriever(aiProviderOptions.ragCorpus, aiProviderOptions.ragMode);
+        RagRetriever retriever = ragRetriever(aiProviderOptions);
         AuditPlan plan = new PlanningOrchestrator(config, retriever).plan(profile);
         writeJson(planPath, plan);
 
@@ -571,14 +685,50 @@ public class DataAuditMain implements Runnable {
     }
 
     private static RagRetriever ragRetriever(Path corpus, String mode) throws Exception {
+        AiProviderOptions options = new AiProviderOptions();
+        options.ragCorpus = corpus;
+        options.ragMode = mode;
+        return ragRetriever(options);
+    }
+
+    private static RagRetriever ragRetriever(AiProviderOptions options) throws Exception {
+        AiProviderOptions safeOptions = options == null ? new AiProviderOptions() : options;
+        Path corpus = safeOptions.ragCorpus;
+        String mode = safeOptions.ragMode;
         Path path = corpus == null ? defaultRagCorpus() : corpus;
         String normalizedMode = mode == null ? "hybrid" : mode.toLowerCase(Locale.ROOT);
+        EmbeddingClient embeddingClient = embeddingClient(safeOptions);
+        LocalCaseRetriever lexical = LocalCaseRetriever.fromDirectory(path);
         return switch (normalizedMode) {
-            case "lexical" -> LocalCaseRetriever.fromDirectory(path);
-            case "vector" -> VectorCaseRetriever.fromDirectory(path, new HashingEmbeddingClient());
-            case "hybrid" -> HybridCaseRetriever.fromDirectory(path, new HashingEmbeddingClient());
+            case "lexical" -> lexical;
+            case "vector" -> vectorRetriever(lexical, embeddingClient, safeOptions.ragVectorStore);
+            case "hybrid" -> new HybridCaseRetriever(lexical,
+                    vectorRetriever(lexical, embeddingClient, safeOptions.ragVectorStore));
             default -> throw new IllegalArgumentException("Unsupported RAG mode: " + mode);
         };
+    }
+
+    private static RagRetriever vectorRetriever(LocalCaseRetriever lexical,
+                                                EmbeddingClient embeddingClient,
+                                                String vectorStoreBackend) {
+        if (vectorStoreBackend != null && !vectorStoreBackend.isBlank()) {
+            VectorStore store = new VectorStoreFactory().create(vectorStoreBackend, embeddingClient);
+            store.index(lexical.cases());
+            return new VectorStoreCaseRetriever(store, embeddingClient);
+        }
+        return new VectorCaseRetriever(lexical.cases(), embeddingClient);
+    }
+
+    private static EmbeddingClient embeddingClient(AiProviderOptions options) {
+        EmbeddingProviderConfig config = new EmbeddingProviderConfig();
+        config.provider = options.ragEmbeddingProvider;
+        config.endpoint = options.ragEmbeddingEndpoint == null || options.ragEmbeddingEndpoint.isBlank()
+                ? null
+                : URI.create(options.ragEmbeddingEndpoint);
+        config.apiKey = options.ragEmbeddingApiKey;
+        config.model = options.ragEmbeddingModel;
+        config.fallbackOnProviderError = !options.ragEmbeddingFailFast;
+        return new EmbeddingClientFactory().create(config);
     }
 
     private static Path defaultRagCorpus() {
@@ -591,6 +741,55 @@ public class DataAuditMain implements Runnable {
         return value == null || value.isBlank() ? fallback : value;
     }
 
+    private static String safeMetadata(String value) {
+        if (value == null || value.isBlank() || value.startsWith("${")) {
+            return "unknown";
+        }
+        return value;
+    }
+
+    static class BuildMetadata {
+        final String version;
+        final String buildTime;
+        final String commitId;
+
+        BuildMetadata(String version, String buildTime, String commitId) {
+            this.version = version;
+            this.buildTime = buildTime;
+            this.commitId = commitId;
+        }
+
+        static BuildMetadata load() {
+            Attributes attributes = manifestAttributes();
+            String packageVersion = DataAuditMain.class.getPackage() == null
+                    ? null
+                    : DataAuditMain.class.getPackage().getImplementationVersion();
+            return new BuildMetadata(
+                    safeMetadata(firstNonBlank(packageVersion, attributes.getValue("Implementation-Version"))),
+                    safeMetadata(attributes.getValue("Build-Time")),
+                    safeMetadata(attributes.getValue("Git-Commit")));
+        }
+
+        private static Attributes manifestAttributes() {
+            try (InputStream input = DataAuditMain.class.getClassLoader()
+                    .getResourceAsStream("META-INF/MANIFEST.MF")) {
+                if (input == null) {
+                    return new Attributes();
+                }
+                Attributes attributes = new Manifest(input).getMainAttributes();
+                return "data-audit-cli".equals(attributes.getValue("Implementation-Title"))
+                        ? attributes
+                        : new Attributes();
+            } catch (Exception ignored) {
+                return new Attributes();
+            }
+        }
+
+        private static String firstNonBlank(String first, String second) {
+            return first == null || first.isBlank() ? second : first;
+        }
+    }
+
     private static int envInt(String name, int fallback) {
         String value = env(name, null);
         return value == null ? fallback : Integer.parseInt(value);
@@ -599,6 +798,11 @@ public class DataAuditMain implements Runnable {
     private static long envLong(String name, long fallback) {
         String value = env(name, null);
         return value == null ? fallback : Long.parseLong(value);
+    }
+
+    private static boolean envBool(String name, boolean fallback) {
+        String value = env(name, null);
+        return value == null ? fallback : Boolean.parseBoolean(value);
     }
 
     private static Path envPath(String name) {

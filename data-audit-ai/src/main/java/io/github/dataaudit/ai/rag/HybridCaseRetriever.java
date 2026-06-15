@@ -12,9 +12,9 @@ import java.util.Map;
 
 public class HybridCaseRetriever implements RagRetriever {
     private final LocalCaseRetriever lexicalRetriever;
-    private final VectorCaseRetriever vectorRetriever;
+    private final RagRetriever vectorRetriever;
 
-    public HybridCaseRetriever(LocalCaseRetriever lexicalRetriever, VectorCaseRetriever vectorRetriever) {
+    public HybridCaseRetriever(LocalCaseRetriever lexicalRetriever, RagRetriever vectorRetriever) {
         this.lexicalRetriever = lexicalRetriever == null ? new LocalCaseRetriever() : lexicalRetriever;
         this.vectorRetriever = vectorRetriever == null
                 ? new VectorCaseRetriever(this.lexicalRetriever.cases(), new HashingEmbeddingClient())
@@ -67,11 +67,6 @@ public class HybridCaseRetriever implements RagRetriever {
 
     private HistoricalCase find(String id) {
         for (HistoricalCase historicalCase : lexicalRetriever.cases()) {
-            if (id != null && id.equals(historicalCase.id)) {
-                return historicalCase;
-            }
-        }
-        for (HistoricalCase historicalCase : vectorRetriever.cases()) {
             if (id != null && id.equals(historicalCase.id)) {
                 return historicalCase;
             }

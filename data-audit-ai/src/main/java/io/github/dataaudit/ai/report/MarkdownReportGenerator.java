@@ -116,8 +116,13 @@ public class MarkdownReportGenerator implements AiReportGenerator {
         if (!analysis.retrievedCases.isEmpty()) {
             builder.append("\n## 检索案例\n\n");
             for (RootCauseAnalysis.RetrievedCase retrievedCase : analysis.retrievedCases) {
-                builder.append("- ").append(retrievedCase.title)
-                        .append(" (score=").append(String.format("%.2f", retrievedCase.score)).append(")\n");
+                builder.append("- ").append(retrievedCase.id).append(": ").append(retrievedCase.title)
+                        .append(" (score=").append(String.format("%.2f", retrievedCase.score)).append(")");
+                if (!retrievedCase.matchedEvidence.isEmpty()) {
+                    builder.append(", matched_evidence=")
+                            .append(String.join("; ", retrievedCase.matchedEvidence));
+                }
+                builder.append("\n");
             }
         }
     }

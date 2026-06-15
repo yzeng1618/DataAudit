@@ -138,7 +138,7 @@ public class TrinoConnectorFactory implements ConnectorFactory {
             String sql = selectSql(new ReadRequest(), true);
             try (Connection connection = dataSource.getConnection();
                  PreparedStatement statement = connection.prepareStatement(sql);
-                 ResultSet resultSet = statement.executeQuery()) {
+                 ResultSet resultSet = executeQuery(statement)) {
                 ResultSetMetaData metadata = resultSet.getMetaData();
                 SchemaModel schema = new SchemaModel();
                 for (int index = 1; index <= metadata.getColumnCount(); index++) {
@@ -164,7 +164,7 @@ public class TrinoConnectorFactory implements ConnectorFactory {
             try (Connection connection = dataSource.getConnection();
                  PreparedStatement statement = connection.prepareStatement(sql)) {
                 bindSlice(statement, request);
-                try (ResultSet resultSet = statement.executeQuery()) {
+                try (ResultSet resultSet = executeQuery(statement)) {
                     SummaryMetrics metrics = new SummaryMetrics();
                     if (resultSet.next()) {
                         metrics.rowCount = resultSet.getLong("row_count");
@@ -211,6 +211,7 @@ public class TrinoConnectorFactory implements ConnectorFactory {
             long startedAt = System.nanoTime();
             try (Connection connection = dataSource.getConnection();
                  PreparedStatement statement = connection.prepareStatement(sql)) {
+                applyStatementTuning(statement);
                 bindSlice(statement, request);
                 LOG.info("Trino read start [{}]: {}", endpointLabel(), sqlPreview(sql));
                 try (ResultSet resultSet = statement.executeQuery()) {
@@ -285,6 +286,27 @@ public class TrinoConnectorFactory implements ConnectorFactory {
             if (request.sliceColumn != null && request.sliceValue != null) {
                 statement.setString(1, request.sliceValue);
             }
+        }
+
+        private ResultSet executeQuery(PreparedStatement statement) throws Exception {
+            applyStatementTuning(statement);
+            return statement.executeQuery();
+        }
+
+        private void applyStatementTuning(PreparedStatement statement) throws Exception {
+            int queryTimeoutSeconds = resourceQueryTimeoutSeconds();
+            if (queryTimeoutSeconds > 0) {
+                statement.setQueryTimeout(queryTimeoutSeconds);
+            }
+        }
+
+        private int resourceQueryTimeoutSeconds() {
+            if (spec.resources == null || spec.resources.queryTimeoutMillis == null || spec.resources.queryTimeoutMillis <= 0L) {
+                return 0;
+            }
+            long millis = spec.resources.queryTimeoutMillis;
+            long seconds = (millis / 1000L) + (millis % 1000L == 0L ? 0L : 1L);
+            return (int) Math.min(Integer.MAX_VALUE, Math.max(1L, seconds));
         }
 
         private boolean matchesSample(Map<String, Object> row, ReadRequest request) {
@@ -446,7 +468,7 @@ public class TrinoConnectorFactory implements ConnectorFactory {
             List<String> values = new ArrayList<>();
             try (Connection connection = dataSource.getConnection();
                  PreparedStatement statement = connection.prepareStatement(sql);
-                 ResultSet resultSet = statement.executeQuery()) {
+                 ResultSet resultSet = executeQuery(statement)) {
                 while (resultSet.next()) {
                     values.add(resultSet.getString("slice_value"));
                 }
@@ -461,7 +483,7 @@ public class TrinoConnectorFactory implements ConnectorFactory {
             List<SliceSignal> signals = new ArrayList<>();
             try (Connection connection = dataSource.getConnection();
                  PreparedStatement statement = connection.prepareStatement(sql);
-                 ResultSet resultSet = statement.executeQuery()) {
+                 ResultSet resultSet = executeQuery(statement)) {
                 while (resultSet.next()) {
                     SliceSignal signal = new SliceSignal();
                     signal.sliceKey = keyPrefix + "=" + resultSet.getString(valueColumn);

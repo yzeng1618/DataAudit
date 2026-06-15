@@ -7,6 +7,10 @@ public class DiffResult {
     public boolean consistent = true;
     public String rootCause = "consistent";
     public boolean sampled;
+    public boolean resourceBounded;
+    public boolean limitExceeded;
+    public String limitType;
+    public String fallbackReason;
     public List<DiffSample> samples = new ArrayList<>();
 
     public boolean isConsistent() {
@@ -19,6 +23,22 @@ public class DiffResult {
 
     public List<DiffSample> getSamples() {
         return samples;
+    }
+
+    public boolean isResourceBounded() {
+        return resourceBounded;
+    }
+
+    public boolean isLimitExceeded() {
+        return limitExceeded;
+    }
+
+    public String getLimitType() {
+        return limitType;
+    }
+
+    public String getFallbackReason() {
+        return fallbackReason;
     }
 
     public static class DiffSample {

@@ -1,6 +1,8 @@
 {
   "id": "flink-cdc-boundary-miss",
   "title": "Flink CDC incremental boundary miss",
+  "source_type": "flink-cdc",
+  "target_type": "jdbc",
   "sync_mode": "cdc",
   "symptoms": ["target row count lower", "checkpoint", "incremental boundary"],
   "evidence_patterns": ["checkpoint", "cdc", "source_records", "sink_records", "boundary"],

@@ -16,6 +16,7 @@ java -jar data-audit-cli/target/data-audit.jar plan  -f task.yaml
 java -jar data-audit-cli/target/data-audit.jar check -f task.yaml
 java -jar data-audit-cli/target/data-audit.jar diff  -f task.yaml --slice dt=2026-03-10
 java -jar data-audit-cli/target/data-audit.jar report show reports/task/report.json
+java -jar data-audit-cli/target/data-audit.jar version
 ```
 
 确定性审计结果以 `report.json` 为准。AI Copilot Alpha 只生成辅助画像、计划、根因分析、修复建议和 Markdown 报告，不直接决定数据一致性。
@@ -39,6 +40,7 @@ java -jar data-audit-cli/target/data-audit.jar report show reports/task/report.j
 | 执行审计 | `check -f task.yaml` | 已实现 | 生成报告产物；按状态返回退出码 |
 | 可疑切片下钻 | `diff -f task.yaml --slice ...` | 已实现 | 指定 slice 后做 `EXACT_DIFF` |
 | 报告摘要展示 | `report show report.json` | 已实现 | 从 `report.json` 打印状态、根因、证明方式、置信度、可疑切片 |
+| 构建元数据 | `version` | 已实现 | 打印 version、build_time、commit_id 和 Java runtime；缺失元数据为 `unknown` |
 | 确定性 check 后生成 AI sidecar | `check --ai-report` | 已实现 | 不改变确定性 `check` 退出码；在输出目录写 AI 旁路文件 |
 
 退出码语义：
@@ -81,7 +83,10 @@ java -jar data-audit-cli/target/data-audit.jar report show reports/task/report.j
 - 真正流式 diff。
 - segment 并行调度。
 - 统一内存上限治理。
-- `${ENV_VAR}` 在 YAML 中自动展开。
+
+Hudi/Delta/Paimon 如果被写成 native endpoint type，当前应以配置错误退出，
+并提示这些能力仍是 design-reserved。需要走生产验收时，应使用 JDBC、Trino
+或已实现的 Iceberg 路径。
 
 ### 2.4 报告与状态
 
@@ -207,12 +212,15 @@ data-audit-cli/target/dataaudit-ai.jar
 java -jar data-audit-cli/target/data-audit.jar --help
 java -jar data-audit-cli/target/data-audit.jar ai --help
 java -jar data-audit-cli/target/dataaudit-ai.jar --help
+java -jar data-audit-cli/target/data-audit.jar version
 ```
 
 预期：
 
 - 主 CLI 展示 `plan/check/diff/report/ai`。
 - AI 子命令展示 `profile/plan/explain/report/repair/ask`。
+- `version` 至少展示 `version`、`build_time`、`commit_id`、`java_version`。
+- 本地构建缺少 commit 或 build time 时，对应字段展示 `unknown`，命令退出码为 `0`。
 
 ## 4. 一层本地主链路验证
 
@@ -260,6 +268,27 @@ java -jar data-audit-cli/target/dataaudit-ai.jar --help
 - `plan.scale_class`、`plan.signal_strategy`、`plan.localization_strategy` 符合场景预期。
 - `result.proof_mode`、`result.confidence`、`result.root_cause` 符合场景预期。
 - 历史字段不出现在报告里。
+
+### 4.5 资源治理 fixture
+
+资源治理的本地 SQLite fixture 用 JUnit 直接驱动真实 CLI：
+
+```powershell
+. .\scripts\use-java17.ps1
+mvn -q -pl data-audit-it -am -Dtest=ResourceGovernanceCliIntegrationTest test
+```
+
+通过标准：
+
+- 命令退出码为 `0`。
+- fixture 内部的 `data-audit check` 退出码为 `1`。
+- `report.json.result.status=DIFF_FOUND`。
+- `report.json.result.proof_mode=EXACT_DIFF`。
+- `report.json.result.diff.resource_bounded=true`。
+- `report.json.result.diff.limit_exceeded=false`。
+- diff samples 不超过 `resources.max_diff_samples=2`。
+- `report.json.evidence.progress_events` 包含 `exact_diff` 阶段事件。
+- 本地 SQLite fixture 耗时小于 `15s`。
 
 ## 5. 二层连接器验证
 
@@ -417,7 +446,8 @@ templates/server-jdbc-to-iceberg.yaml
 注意：
 
 - 当前 YAML 中的 `${PASSWORD}` 不会自动展开。正式运行前需要渲染成真实运行时 YAML，或者直接填入运行时密码文件。
-- JDBC 场景建议显式配置 `query_timeout_seconds`、`fetch_size`、`progress_log_interval_rows`。
+- JDBC 场景建议显式配置 `query_timeout_seconds`、`fetch_size`、`progress_log_interval_rows`；也可以用 `resources.query_timeout_millis` 作为 JDBC/Trino 的统一查询超时默认值。
+- 生产任务建议显式配置 `resources.max_in_memory_rows`、`resources.max_diff_samples`、`resources.global_timeout_millis`、`resources.segment_parallelism`。segment 并发默认是 `1`，不要在未评估数据库容量前调高。
 - 小表优先写 `query:`，大表分区优先配置 `object.partition_by`。
 - 不要把高基数字段如 `id/order_id/uuid` 当作分区切片字段。
 
@@ -750,6 +780,46 @@ mvn -q -pl data-audit-report,data-audit-cli -am `
   '-Dsurefire.failIfNoSpecifiedTests=false' test
 ```
 
+## 10.2 Runtime Hardening 验证
+
+产品化运行时硬化以 `openspec/changes/productize-cli-runtime-hardening` 为准。
+
+新增或修改 CLI 配置加载、连接器校验、打包或部署文档后，需要确认：
+
+- `task.yaml` 中受支持字段的 `${ENV_VAR}` 会在验证和执行前展开。
+- 缺失环境变量时，`plan/check/diff` 在打开 connector 前失败，退出码为 `2`。
+- 错误输出只包含变量名和字段路径，不打印展开后的 secret 值。
+- `source.type` 或 `target.type` 配置为 native `hudi`、`delta`、`paimon`
+  时，以配置错误退出并提示 design-reserved。
+- JDBC、Trino、Iceberg 的有效配置仍通过 `SpecValidator`。
+- `data-audit version` 打印 `version`、`build_time`、`commit_id`、
+  `java_version`；缺失元数据展示 `unknown` 且退出码为 `0`。
+- `hs_err_pid*.log` 和 `replay_pid*.log` 不再出现在 `git status --short`
+  的未跟踪文件中。
+
+最小 runtime hardening 测试命令：
+
+```powershell
+. .\scripts\use-java17.ps1
+mvn -q -pl data-audit-cli,data-audit-core -am `
+  -Dtest=DataAuditRuntimeHardeningTest,SpecValidatorTest `
+  '-Dsurefire.failIfNoSpecifiedTests=false' test
+```
+
+单容器部署验收时，推荐固定挂载：
+
+```text
+/tasks
+/reports
+/state
+/logs
+```
+
+并按 `version -> plan -> check -> report show` 顺序验证。生产 secret
+应通过环境变量或调度器 secret 注入，任务文件中只保留 `${SRC_PASSWORD}`、
+`${TGT_PASSWORD}` 这类受支持运行时字段引用；AI provider key 继续通过
+`DATAAUDIT_AI_API_KEY` 或 CLI 参数注入。
+
 ## 11. 常见失败与排查
 
 | 现象 | 常见原因 | 排查方式 |
@@ -759,8 +829,10 @@ mvn -q -pl data-audit-report,data-audit-cli -am `
 | 小表误走大表路径 | `estimated_rows` 过大或未配置 | 配置正确估算，必要时用 `planner.scale_override: small` |
 | 大表切片过多很慢 | 把唯一键当作分区字段 | `partition_by` 改为 `dt/biz_date/bucket_id` |
 | `table:` 模式读取太慢 | 默认可能读取全列 | 改用 `query:` 或显式 `object.columns` |
-| 连接器卡住 | DB 查询慢或 JDBC 没超时 | 配置 `query_timeout_seconds`、`fetch_size`，直接在 DB 执行同 SQL |
-| YAML 密码未生效 | `${ENV_VAR}` 不会自动展开 | 先渲染运行时 YAML 或填入运行时密码 |
+| 连接器卡住 | DB 查询慢或 JDBC/Trino 没超时 | 配置 `resources.query_timeout_millis` 或 JDBC `query_timeout_seconds`、`fetch_size`，直接在 DB 执行同 SQL |
+| report 出现 `limit_exceeded` | exact diff 超过内存或全局超时预算 | 查看 `evidence.progress_events.limit_type`，调大 `resources.max_in_memory_rows` / `resources.global_timeout_millis`，或改用更低基数的分区切片 |
+| YAML 密码未生效 | 环境变量未注入或变量名拼错 | 确认 shell/容器/调度器中存在同名变量；缺失时 CLI 会以退出码 `2` 失败 |
+| 配置 Hudi/Delta/Paimon native type 失败 | 这些 native connector 仍是 design-reserved | 改用 JDBC、Trino 或 Iceberg 路径 |
 | AI plan 退出码 `6` | profile 质量门禁需要确认 | 补全 task 配置，或用 `--accept-profile` |
 
 ## 12. 最小验收命令集
@@ -769,6 +841,7 @@ mvn -q -pl data-audit-report,data-audit-cli -am `
 
 ```powershell
 . .\scripts\use-java17.ps1
+mvn -q -pl data-audit-core,data-audit-it -am test
 mvn -q -pl data-audit-cli -am -DskipTests package
 .\scripts\verify-local-sqlite.ps1
 .\scripts\verify-second-layer-local.ps1

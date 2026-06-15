@@ -11,6 +11,7 @@ import io.github.dataaudit.spi.model.ExecutionPlan;
 import io.github.dataaudit.spi.model.GlobalSignalEvidence;
 import io.github.dataaudit.spi.model.LocalizationEvidence;
 import io.github.dataaudit.spi.model.ProofMode;
+import io.github.dataaudit.spi.model.ProgressEvent;
 import io.github.dataaudit.spi.model.ReportModel;
 import io.github.dataaudit.spi.model.RunState;
 import io.github.dataaudit.spi.model.ScaleClass;
@@ -107,12 +108,15 @@ public class ExecutionService {
             ScaleClass scaleClass = plan.scaleClass == null ? scaleClassifier.classify(spec) : plan.scaleClass;
             report.plan.scaleClass = scaleClass;
 
+            addProgressEvent(report, spec, runState.runId, "global_signal", null, "started");
             GlobalSignalEvidence globalSignal = signalEngine.evaluate(spec, scaleClass, sourceSignalReader, targetSignalReader);
+            addProgressEvent(report, spec, runState.runId, "global_signal", null, "completed");
             report.evidence.globalSignal = globalSignal;
             report.result.sourceSummary = globalSignal.sourceSummary;
             report.result.targetSummary = globalSignal.targetSummary;
 
             boolean globalEquivalent = summaryEquivalent(globalSignal);
+            addProgressEvent(report, spec, runState.runId, "localization", null, "started");
             LocalizationEvidence localization = prepareLocalization(
                     spec,
                     scaleClass,
@@ -124,10 +128,12 @@ public class ExecutionService {
                     sourceRowReader,
                     targetRowReader
             );
+            addProgressEvent(report, spec, runState.runId, "localization", null, "completed");
             report.evidence.localization = localization;
             applyLocalization(report, localization);
 
             ExactDiffEvidence exactDiff = exactDiffExecutor.execute(spec, scaleClass, sourceRowReader, targetRowReader, localization);
+            attachExactDiffProgress(report, spec, runState.runId, exactDiff);
             report.evidence.exactDiff = exactDiff;
             report.result.diff = exactDiff.diff;
             report.result.samplingSummary = exactDiff.samplingSummary;
@@ -156,13 +162,27 @@ public class ExecutionService {
                 return persist(spec, runState.runId, report, report.result.status, new ArrayList<>());
             }
 
+            addProgressEvent(report, spec, runState.runId, "exact_diff", sliceKey, "started");
             report.result.diff = diffEngine.diff(sourceBundle.getRowStreamReader(), targetBundle.getRowStreamReader(), spec, sliceKey);
+            if (report.result.diff.limitExceeded) {
+                addLimitEvent(report, spec, runState.runId, "exact_diff", sliceKey, report.result.diff);
+            }
+            addProgressEvent(report, spec, runState.runId, "exact_diff", sliceKey, "completed");
             report.evidence.exactDiff.completed = true;
             report.evidence.exactDiff.diff = report.result.diff;
+            report.evidence.exactDiff.limitExceeded = report.result.diff.limitExceeded;
+            report.evidence.exactDiff.limitType = report.result.diff.limitType;
+            report.evidence.exactDiff.progressEvents.addAll(report.evidence.progressEvents);
             report.result.status = report.result.diff.consistent ? "CONSISTENT" : "DIFF_FOUND";
             report.result.rootCause = report.result.diff.consistent ? null : resolveRootCause(null, report.result.diff);
-            report.result.proofMode = ProofMode.EXACT_DIFF;
-            report.result.confidence = ConfidenceLevel.EXACT;
+            if (report.result.diff.limitExceeded) {
+                report.result.fallbackReason = report.result.diff.fallbackReason;
+                report.result.proofMode = ProofMode.SAMPLING;
+                report.result.confidence = ConfidenceLevel.LOW;
+            } else {
+                report.result.proofMode = ProofMode.EXACT_DIFF;
+                report.result.confidence = ConfidenceLevel.EXACT;
+            }
             if (sliceKey != null) {
                 SliceDescriptor descriptor = new SliceDescriptor();
                 descriptor.sliceKey = sliceKey;
@@ -224,6 +244,18 @@ public class ExecutionService {
         }
 
         if (exactDiff.completed) {
+            if (exactDiff.diff != null && exactDiff.diff.limitExceeded) {
+                report.result.status = "DIFF_FOUND";
+                report.result.rootCause = exactDiff.diff.rootCause;
+                report.result.fallbackReason = exactDiff.diff.fallbackReason == null
+                        ? report.result.fallbackReason
+                        : exactDiff.diff.fallbackReason;
+                if (report.result.proofMode == null || report.result.proofMode == ProofMode.EXACT_DIFF) {
+                    report.result.proofMode = ProofMode.SAMPLING;
+                }
+                report.result.confidence = ConfidenceLevel.LOW;
+                return;
+            }
             if (exactDiff.diff.consistent
                     && localization != null
                     && localization.proofMode == ProofMode.XOR_CHECKSUM_PLUS_SAMPLE
@@ -313,6 +345,56 @@ public class ExecutionService {
             }
         }
         return false;
+    }
+
+    private void attachExactDiffProgress(ReportModel report,
+                                         TaskFileSpec spec,
+                                         String runId,
+                                         ExactDiffEvidence exactDiff) {
+        if (exactDiff == null || exactDiff.progressEvents == null) {
+            return;
+        }
+        for (ProgressEvent event : exactDiff.progressEvents) {
+            normalizeProgressEvent(event, spec, runId);
+            report.evidence.progressEvents.add(event);
+        }
+    }
+
+    private void addProgressEvent(ReportModel report,
+                                  TaskFileSpec spec,
+                                  String runId,
+                                  String stage,
+                                  String sliceKey,
+                                  String status) {
+        ProgressEvent event = "started".equals(status)
+                ? ProgressEvent.started(spec.task.name, runId, stage, sliceKey)
+                : ProgressEvent.completed(spec.task.name, runId, stage, sliceKey);
+        report.evidence.progressEvents.add(event);
+    }
+
+    private void addLimitEvent(ReportModel report,
+                               TaskFileSpec spec,
+                               String runId,
+                               String stage,
+                               String sliceKey,
+                               io.github.dataaudit.spi.model.DiffResult diff) {
+        report.evidence.progressEvents.add(ProgressEvent.limitExceeded(
+                spec.task.name,
+                runId,
+                stage,
+                sliceKey,
+                diff.limitType,
+                diff.fallbackReason
+        ));
+    }
+
+    private void normalizeProgressEvent(ProgressEvent event, TaskFileSpec spec, String runId) {
+        if (event.taskName == null) {
+            event.taskName = spec.task.name;
+        }
+        if (event.runId == null) {
+            event.runId = runId;
+        }
     }
 
     private ReportModel persist(TaskFileSpec spec,

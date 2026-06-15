@@ -29,6 +29,7 @@ public class LocalCaseRetriever implements RagRetriever {
 
     public static LocalCaseRetriever fromDirectory(Path directory) throws Exception {
         ObjectMapper mapper = AiObjectMapper.create();
+        CorpusValidator validator = new CorpusValidator(mapper);
         List<HistoricalCase> loaded = new ArrayList<>(defaultCases());
         Set<String> ids = new LinkedHashSet<>();
         for (HistoricalCase historicalCase : loaded) {
@@ -38,7 +39,7 @@ public class LocalCaseRetriever implements RagRetriever {
             try (var stream = Files.list(directory)) {
                 for (Path file : stream.filter(path -> path.toString().endsWith(".json")).toList()) {
                     HistoricalCase historicalCase = mapper.readValue(file.toFile(), HistoricalCase.class);
-                    if (historicalCase.id != null && ids.add(historicalCase.id)) {
+                    if (validator.valid(historicalCase) && ids.add(historicalCase.id)) {
                         loaded.add(historicalCase);
                     }
                 }
@@ -172,7 +173,7 @@ public class LocalCaseRetriever implements RagRetriever {
         cases.add(caseOf(
                 "iceberg-partition-overwrite",
                 "Iceberg overwrite 分区覆盖范围不完整导致目标端少数据",
-                null,
+                "jdbc",
                 "iceberg",
                 null,
                 "overwrite",
@@ -184,8 +185,8 @@ public class LocalCaseRetriever implements RagRetriever {
         cases.add(caseOf(
                 "flink-cdc-boundary-miss",
                 "Flink CDC 增量边界漏读导致目标端少数据",
-                null,
-                null,
+                "flink-cdc",
+                "jdbc",
                 "cdc",
                 null,
                 List.of("target row count lower", "checkpoint", "incremental boundary"),
@@ -196,7 +197,7 @@ public class LocalCaseRetriever implements RagRetriever {
         cases.add(caseOf(
                 "doris-stream-load-redirect",
                 "Doris Stream Load 307 redirect/retry 后部分记录未提交",
-                null,
+                "jdbc",
                 "doris",
                 null,
                 null,
@@ -208,8 +209,8 @@ public class LocalCaseRetriever implements RagRetriever {
         cases.add(caseOf(
                 "embedding-dimension-mismatch",
                 "RAG 数据集 embedding_dim 不一致导致向量字段 checksum 不一致",
-                null,
-                null,
+                "jdbc",
+                "vector-store",
                 null,
                 null,
                 List.of("checksum mismatch", "embedding_dim mismatch"),

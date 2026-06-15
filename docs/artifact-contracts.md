@@ -77,6 +77,7 @@ reading internal Java objects.
 Reserved Agent artifact names:
 
 - `agent_state.json`
+- `agent_checkpoint.json`
 - `approval_request.json`
 - `approval_decision.json`
 - `tool_invocation.json`

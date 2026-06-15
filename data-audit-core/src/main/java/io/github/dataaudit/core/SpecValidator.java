@@ -32,7 +32,29 @@ public class SpecValidator {
         if (spec.output == null || isBlank(spec.output.dir)) {
             issues.add("output.dir is required");
         }
+        validateResources(spec, issues);
         return issues;
+    }
+
+    private void validateResources(TaskFileSpec spec, List<String> issues) {
+        if (spec.resources == null) {
+            return;
+        }
+        if (spec.resources.maxInMemoryRows == null || spec.resources.maxInMemoryRows <= 0L) {
+            issues.add("resources.max_in_memory_rows must be positive");
+        }
+        if (spec.resources.maxDiffSamples == null || spec.resources.maxDiffSamples <= 0) {
+            issues.add("resources.max_diff_samples must be positive");
+        }
+        if (spec.resources.globalTimeoutMillis == null || spec.resources.globalTimeoutMillis < 0L) {
+            issues.add("resources.global_timeout_millis must be non-negative");
+        }
+        if (spec.resources.queryTimeoutMillis == null || spec.resources.queryTimeoutMillis < 0L) {
+            issues.add("resources.query_timeout_millis must be non-negative");
+        }
+        if (spec.resources.segmentParallelism == null || spec.resources.segmentParallelism < 1) {
+            issues.add("resources.segment_parallelism must be at least 1");
+        }
     }
 
     private void validateEndpoint(String label,
@@ -41,6 +63,12 @@ public class SpecValidator {
                                   List<String> issues) {
         if (endpoint == null || isBlank(endpoint.type)) {
             issues.add(label + ".type is required");
+            return;
+        }
+        if (isDesignReservedEndpointType(endpoint.type)) {
+            issues.add(label + ".type=" + endpoint.type.toLowerCase(Locale.ROOT) + " "
+                    + displayName(endpoint.type)
+                    + " native support is design-reserved; use supported JDBC, Trino, or Iceberg paths");
             return;
         }
         if (!isSupportedEndpointType(endpoint.type)) {
@@ -82,6 +110,19 @@ public class SpecValidator {
                 || "trino".equalsIgnoreCase(type)
                 || "jdbc".equalsIgnoreCase(type)
                 || "iceberg".equalsIgnoreCase(type);
+    }
+
+    private boolean isDesignReservedEndpointType(String type) {
+        return "hudi".equalsIgnoreCase(type)
+                || "delta".equalsIgnoreCase(type)
+                || "paimon".equalsIgnoreCase(type);
+    }
+
+    private String displayName(String type) {
+        if (type == null || type.isBlank()) {
+            return "";
+        }
+        return type.substring(0, 1).toUpperCase(Locale.ROOT) + type.substring(1).toLowerCase(Locale.ROOT);
     }
 
     private boolean usesTrinoQueryPlane(TaskFileSpec.EndpointSpec endpoint) {

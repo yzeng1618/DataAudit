@@ -96,6 +96,29 @@ class ExecutionServiceScalePipelineTest {
     }
 
     @Test
+    void shouldAttachProgressEventsWithRunIdForCheckStages() throws Exception {
+        TaskFileSpec spec = baseSpec("large_progress_events");
+        spec.object.columns.add("id");
+        spec.object.columns.add("value");
+        spec.object.estimatedRows = 1_000_000L;
+
+        ExecutionService service = newExecutionService(
+                bundle(summaryReader(1L, "1:1"), rowReader(row("id", 1, "value", "A"))),
+                bundle(summaryReader(1L, "2:2"), rowReader(row("id", 1, "value", "B")))
+        );
+
+        ReportModel report = service.check(spec);
+
+        assertTrue(report.evidence.progressEvents.stream().anyMatch(event ->
+                "global_signal".equals(event.stage) && "started".equals(event.status)));
+        assertTrue(report.evidence.progressEvents.stream().anyMatch(event ->
+                "localization".equals(event.stage) && "completed".equals(event.status)));
+        assertTrue(report.evidence.progressEvents.stream().anyMatch(event ->
+                "exact_diff".equals(event.stage) && "completed".equals(event.status)));
+        assertTrue(report.evidence.progressEvents.stream().allMatch(event -> report.runId.equals(event.runId)));
+    }
+
+    @Test
     void shouldRequireLowConfidenceWhenSamplingReportsConsistent() throws Exception {
         TaskFileSpec spec = baseSpec("xlarge_sampling_consistent");
         spec.object.columns.add("id");

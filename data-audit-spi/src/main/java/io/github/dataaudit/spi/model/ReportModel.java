@@ -149,9 +149,14 @@ public class ReportModel {
         public GlobalSignalEvidence globalSignal = new GlobalSignalEvidence();
         public LocalizationEvidence localization = new LocalizationEvidence();
         public ExactDiffEvidence exactDiff = new ExactDiffEvidence();
+        public List<ProgressEvent> progressEvents = new ArrayList<>();
 
         public List<String> getNotes() {
             return notes;
+        }
+
+        public List<ProgressEvent> getProgressEvents() {
+            return progressEvents;
         }
     }
 

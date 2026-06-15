@@ -1,6 +1,7 @@
 {
   "id": "iceberg-partition-overwrite",
   "title": "Iceberg overwrite partition coverage",
+  "source_type": "jdbc",
   "target_type": "iceberg",
   "write_mode": "overwrite",
   "symptoms": ["target row count lower", "partition diff", "overwrite partition"],

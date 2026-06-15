@@ -55,9 +55,7 @@ public class RootCauseOrchestrator {
                 RootCauseAnalysis proposal = client.generateJson(AiPromptContracts.ANALYZE_ROOT_CAUSE,
                         request,
                         RootCauseAnalysis.class);
-                if (proposal.retrievedCases.isEmpty()) {
-                    proposal.retrievedCases.addAll(retriever.retrieveSummaries(features, 5));
-                }
+                enrichRetrievedEvidence(proposal, retriever.retrieveSummaries(features, 5));
                 structureValidator.validate(proposal);
                 requiredFieldGuardrail.validate(proposal);
                 return proposal;
@@ -75,5 +73,23 @@ public class RootCauseOrchestrator {
                                   Map<String, Object> features,
                                   List<HistoricalCase> retrievedCases,
                                   String contract) {
+    }
+
+    private void enrichRetrievedEvidence(RootCauseAnalysis proposal,
+                                          List<RootCauseAnalysis.RetrievedCase> retrievedSummaries) {
+        if (proposal.retrievedCases.isEmpty()) {
+            proposal.retrievedCases.addAll(retrievedSummaries);
+        }
+        for (RootCauseAnalysis.PossibleCause cause : proposal.possibleRootCauses) {
+            if (cause.retrievedCases.isEmpty()) {
+                cause.retrievedCases.addAll(proposal.retrievedCases);
+            }
+            for (RootCauseAnalysis.RetrievedCase retrievedCase : cause.retrievedCases) {
+                if (retrievedCase.id != null && !retrievedCase.id.isBlank()) {
+                    cause.evidence.add("retrieved_case:" + retrievedCase.id + " matched_evidence="
+                            + String.join("|", retrievedCase.matchedEvidence));
+                }
+            }
+        }
     }
 }

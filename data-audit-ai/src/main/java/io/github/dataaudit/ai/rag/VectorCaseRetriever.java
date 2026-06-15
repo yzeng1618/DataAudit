@@ -65,7 +65,7 @@ public class VectorCaseRetriever implements RagRetriever {
         return summary;
     }
 
-    private String caseText(HistoricalCase historicalCase) {
+    static String caseText(HistoricalCase historicalCase) {
         if (historicalCase == null) {
             return "";
         }
@@ -83,7 +83,7 @@ public class VectorCaseRetriever implements RagRetriever {
                 String.join(" ", historicalCase.tags));
     }
 
-    private String safe(String value) {
+    private static String safe(String value) {
         return value == null ? "" : value;
     }
 

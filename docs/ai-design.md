@@ -981,12 +981,32 @@ not become an unbounded conversational repair session.
 - No agent may declare deterministic consistency.
 - No agent may emit mutation SQL or unsafe repair actions.
 - No agent may overwrite locked facts from deterministic audit results.
+- Human approval may approve execution strategy or cost/risk, but it must not
+  approve data consistency.
+- Approval decisions that include deterministic fields such as `status`,
+  `proof_mode`, `confidence`, `root_cause`, `suspect_slices`, or `diff` must be
+  rejected before resume.
+- Checkpoints must include the task fingerprint and pending node so a resumed
+  Agent cannot continue from stale task input.
 - If a role fails schema validation, the coordinator must reject the artifact
   rather than merge it.
 - If the multi-agent path cannot converge, the system falls back to the current
   v2 orchestrators.
 
-### 16.6 What This Means for the Current Codebase
+### 16.6 Checkpoint And Approval Semantics
+
+The first Agent checkpoint path is artifact based. A workflow may pause after
+planning and before high-risk deterministic execution. The Agent writes
+`agent_checkpoint.json` and `approval_request.json`, then waits for
+`approval_decision.json`.
+
+An approved decision resumes from the pending node only when the task
+fingerprint still matches. A rejected decision is terminal for that Agent run:
+the sidecar writes a stopped trace event and does not invoke the deterministic
+`check` tool. In both cases, the Java report remains the source of truth for
+audit status and proof strength.
+
+### 16.7 What This Means for the Current Codebase
 
 Today the code already has the right stepping stones:
 `ProfileCollector`, `PlanningOrchestrator`, `RootCauseOrchestrator`,

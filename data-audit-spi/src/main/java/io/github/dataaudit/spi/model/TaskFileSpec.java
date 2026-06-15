@@ -15,6 +15,7 @@ public class TaskFileSpec {
     public ObjectSpec object = new ObjectSpec();
     public NormalizeSpec normalize = new NormalizeSpec();
     public SemanticsSpec semantics = new SemanticsSpec();
+    public ResourceSpec resources = new ResourceSpec();
     public OutputSpec output = new OutputSpec();
 
     public static class TaskSpec {
@@ -71,6 +72,14 @@ public class TaskFileSpec {
 
     public static class PlannerSpec {
         public String scaleOverride;
+    }
+
+    public static class ResourceSpec {
+        public Long maxInMemoryRows = 100_000L;
+        public Integer maxDiffSamples = 500;
+        public Long globalTimeoutMillis = 0L;
+        public Long queryTimeoutMillis = 0L;
+        public Integer segmentParallelism = 1;
     }
 
     public static class NormalizeSpec {

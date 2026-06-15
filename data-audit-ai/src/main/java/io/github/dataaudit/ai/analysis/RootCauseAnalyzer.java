@@ -135,9 +135,18 @@ public class RootCauseAnalyzer {
         cause.confidence = confidence;
         cause.evidence.addAll(evidence);
         cause.retrievedCases.addAll(cases);
+        cause.evidence.addAll(evidenceLinks(cases));
         cause.recommendedChecks.addAll(checks);
         cause.missingInformation.addAll(missing);
         analysis.possibleRootCauses.add(cause);
+    }
+
+    private List<String> evidenceLinks(List<RootCauseAnalysis.RetrievedCase> cases) {
+        return cases.stream()
+                .filter(item -> item.id != null && !item.id.isBlank())
+                .map(item -> "retrieved_case:" + item.id + " matched_evidence="
+                        + String.join("|", item.matchedEvidence))
+                .toList();
     }
 
     private String safe(String value) {

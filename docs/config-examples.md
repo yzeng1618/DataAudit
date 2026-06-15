@@ -16,7 +16,7 @@
 - `xlarge`: `metadata / routing digest -> suspicious routing groups -> exact diff`
 - `xlarge` 无稳定切分且无 key：`sampling`
 
-> 当前正式 v1 字段以 `task / boundary / query_connector / source / target / object / normalize / semantics / output` 为准。优先参考 `templates/*.yaml` 和 `scripts/verify-*.ps1` 里的样例；本文后续部分仍有历史性的 `planner / compare / segment` 术语残留，迁移中不再作为推荐写法。
+> 当前正式 v1 字段以 `task / boundary / query_connector / source / target / object / normalize / semantics / resources / output` 为准。优先参考 `templates/*.yaml` 和 `scripts/verify-*.ps1` 里的样例；本文后续部分仍有历史性的 `planner / compare / segment` 术语残留，迁移中不再作为推荐写法。
 
 新增推荐字段：
 
@@ -1157,11 +1157,54 @@ boundary metadata -> schema -> summary -> segment -> diff
 - 作用：SQLite state 文件路径
 - 当前强生效
 
+### 7.14 `resources`
+
+`resources.max_in_memory_rows`
+
+- 作用：单次 exact diff 收集到内存的行数上限
+- 默认：`100000`
+- 当前生效：keyed diff 会先尝试在该上限内完成；超过后改用 hash bucket 分批 keyed diff。keyless diff 超过该上限时会保守回退，不声明 exact proof。
+
+`resources.max_diff_samples`
+
+- 作用：限制 `report.json.result.diff.samples` 与 `row_diff_sample.csv` 的样本数量
+- 默认：`500`
+- 当前生效：keyed/keyless/bucketed diff 都会遵守该上限
+
+`resources.global_timeout_millis`
+
+- 作用：限制 exact diff / suspect segment diff 的全局执行预算
+- 默认：`0`，表示不启用全局超时
+- 当前生效：serial segment diff 会在 segment 前后检查；parallel segment diff 会按剩余预算等待 future。超时时会写入 `limit_exceeded` progress event，并把结果降级为资源受限证据。
+
+`resources.query_timeout_millis`
+
+- 作用：连接器单条查询的默认 statement timeout
+- 默认：`0`，表示不启用资源级查询超时
+- 当前生效：JDBC 和 Trino 会把毫秒值向上取整为 JDBC statement timeout 秒数。JDBC endpoint 上已有的 `options.query_timeout_seconds` 会作为显式覆盖继续生效。
+
+`resources.segment_parallelism`
+
+- 作用：suspect segment exact diff 的并发度
+- 默认：`1`，即串行
+- 当前生效：只有配置为大于 `1` 时才会并发，并且不会超过该配置值。
+
+推荐起步配置：
+
+```yaml
+resources:
+  max_in_memory_rows: 100000
+  max_diff_samples: 500
+  global_timeout_millis: 1800000
+  query_timeout_millis: 300000
+  segment_parallelism: 1
+```
+
 ## 8. 当前性能模型与调优建议
 
 ### 8.1 当前执行模型是什么
 
-当前实现不是流式 compare，而是“分阶段读取 + 内存归一化 + 分层裁决”：
+当前实现是“分阶段读取 + 资源受限 keyed diff + 分层裁决”：
 
 - `schema -> exact diff`
   - source 读取一次
@@ -1171,10 +1214,16 @@ boundary metadata -> schema -> summary -> segment -> diff
   - 先做 source/target 全局 summary
   - 再枚举 segment values
   - 再对每个 segment 做 summary
-  - 最后只对 suspect segment 做 exact diff
+  - 最后只对 suspect segment 做资源受限 keyed exact diff
 - `boundary metadata -> schema -> summary -> segment -> diff`
   - 先读 lakehouse metadata
   - 再按上面的 summary / segment / diff 路径继续
+
+注意：
+
+- 有 `object.key` 时，suspect-slice diff 会受 `resources.max_in_memory_rows` 约束；单片超过上限时会改用稳定 hash bucket 分批比较。
+- 无 key 的 exact diff 仍需要 multiset 对齐；如果超过 `resources.max_in_memory_rows`，会保守记录 `limit_exceeded`，不声明完整 exact proof。
+- `resources.segment_parallelism` 默认是 `1`，只有显式配置才会并发处理 suspect segments。
 
 ### 8.2 为什么 10000 行也可能觉得慢
 
@@ -1192,10 +1241,16 @@ boundary metadata -> schema -> summary -> segment -> diff
 截至当前版本，已经落地的优化包括：
 
 - `check` 已有阶段进度日志
+- `report.json.evidence.progress_events` 会记录 `global_signal`、`localization`、`exact_diff` 的 started/completed/limit_exceeded 事件
 - JDBC 读取已有实时行进度日志
 - exact diff 路径不再重复读取 source/target 两遍
+- keyed suspect diff 已受 `resources.max_in_memory_rows` 约束，并支持 hash bucket 分批比较
+- keyless diff 超过内存上限时会保守回退，不声明 exact proof
+- suspect segment diff 支持显式 `resources.segment_parallelism` 并发，默认串行
+- `resources.global_timeout_millis` 已用于 exact diff / suspect segment diff 的超时治理
+- `resources.query_timeout_millis` 已作为 JDBC/Trino statement timeout 默认值
 - 显式配置 `object.columns.include` 时，JDBC 会下推列投影
-- JDBC 支持 `query_timeout_seconds`
+- JDBC 支持 endpoint 级 `query_timeout_seconds`
 - JDBC 支持 `fetch_size`
 - JDBC 支持 `progress_log_interval_rows`
 
@@ -1203,11 +1258,9 @@ boundary metadata -> schema -> summary -> segment -> diff
 
 这些能力还没有落地，所以大表性能上限仍然有限：
 
-- 真正的流式 diff
+- 无 key 巨大表的完整 streaming exact diff
 - chunked/streaming summary 聚合
-- segment 级别的并行调度
-- 统一的内存上限治理
-- 统一的全局超时策略
+- JDBC/Trino hash bucket 条件的 SQL 下推；当前 bucket 过滤仍在 reader 侧完成
 - `compare.segment.chunk_rows` 的真实消费
 
 ### 8.5 小表性能建议
@@ -1229,8 +1282,9 @@ boundary metadata -> schema -> summary -> segment -> diff
 - `partition_keys` / `compare.segment.by` 只选低基数字段
 - source/target 尽量限制到同一业务范围
 - 显式配置 `object.columns.include`
+- 显式配置 `resources.max_in_memory_rows`、`resources.max_diff_samples`、`resources.global_timeout_millis`
 - JDBC 配置 `fetch_size`
-- JDBC 配置 `query_timeout_seconds`
+- JDBC 配置 `query_timeout_seconds`，或统一配置 `resources.query_timeout_millis`
 - 不要把 `id/order_id/uuid` 这种唯一键当 segment key
 
 ### 8.7 JDBC 推荐调优参数
@@ -1252,10 +1306,19 @@ options:
   dialect: doris
   query_timeout_seconds: 300
   fetch_size: 2000
-  progress_log_interval_rows: 5000
+progress_log_interval_rows: 5000
 ```
 
-### 8.8 如果你只想先判断是不是性能配置问题
+### 8.8 资源治理验收示例
+
+本地 SQLite fixture 已覆盖下面的资源治理验收面：
+
+- 命令：`mvn -q -pl data-audit-it -am -Dtest=ResourceGovernanceCliIntegrationTest test`
+- 场景：128 行 JDBC/JDBC keyed 表，`estimated_rows=1000000`，只改一个目标行
+- 资源阈值：`max_in_memory_rows=32`、`max_diff_samples=2`、`global_timeout_millis=30000`、`query_timeout_millis=30000`
+- 通过标准：退出码为 `1`，`result.status=DIFF_FOUND`，`result.proof_mode=EXACT_DIFF`，`result.diff.resource_bounded=true`，`limit_exceeded=false`，样本数不超过 `2`，本地执行耗时小于 `15s`
+
+### 8.9 如果你只想先判断是不是性能配置问题
 
 建议按这个顺序排查：
 
