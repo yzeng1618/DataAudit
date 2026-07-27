@@ -44,6 +44,28 @@
 
 MVP 阶段它是单进程、单命令、单次任务运行的 CLI。未来可以扩展可选控制面，用于报告汇聚、模板中心和任务目录，但这不改变 CLI-first 的产品边界。
 
+## 5 分钟开始
+
+需要 Java 17+；仓库内置 Maven 3.9.9 Wrapper，不要求预装 Maven：
+
+```bash
+./mvnw -pl data-audit-cli -am clean package
+java -jar data-audit-cli/target/data-audit.jar config init -o task.yaml
+java -jar data-audit-cli/target/data-audit.jar config validate -f task.yaml
+java -jar data-audit-cli/target/data-audit.jar doctor -f task.yaml
+```
+
+编辑 `task.yaml` 后再执行：
+
+```bash
+java -jar data-audit-cli/target/data-audit.jar plan -f task.yaml
+java -jar data-audit-cli/target/data-audit.jar check -f task.yaml
+```
+
+`config validate` 默认是离线检查，不访问 source/target。只有显式增加
+`--test-connection` 才会打开连接器并探测 schema。Windows 下将 `./mvnw`
+替换为 `.\mvnw.cmd`。
+
 ## 适用场景
 
 `data-audit` 统一支持三类规模档位，覆盖小表、大表和超大表对象：
@@ -139,18 +161,23 @@ source:
 ## 命令设计
 
 ```bash
+data-audit config init -o task.yaml
+data-audit config validate -f task.yaml
+data-audit doctor -f task.yaml
 data-audit check -f task.yaml
 data-audit plan  -f task.yaml
 data-audit diff  -f task.yaml --slice dt=2026-03-10
 data-audit report show ./reports/orders_reconcile/report.json
 ```
 
-建议只保留四类命令：
+命令分为执行面和运维面：
 
 - `check`：标准执行
 - `plan`：只生成比较计划，不执行
 - `diff`：对指定 suspect segment 下钻
 - `report`：查看或转换报告
+- `config init/validate`：创建配置并做默认离线校验
+- `doctor`：聚合检查 Java、连接器、SQLite 和输出目录；连接探测必须显式开启
 
 ## AI Copilot Alpha
 
@@ -173,7 +200,7 @@ data-audit check -f task.yaml --ai-report --ai-report-template technical
 打包后也会生成独立 AI wrapper：`java -jar dataaudit-ai.jar plan/explain/report/repair/ask ...`，等价于 `java -jar data-audit.jar ai plan/explain/report/repair/ask ...`。本地构建命令和产物路径：
 
 ```bash
-mvn -pl data-audit-cli -am clean package -DskipTests
+./mvnw -pl data-audit-cli -am clean package -DskipTests
 java -jar data-audit-cli/target/data-audit.jar ai --help
 java -jar data-audit-cli/target/dataaudit-ai.jar --help
 ```
@@ -471,7 +498,7 @@ mkdir -p /opt/data-audit/{bin,tasks,reports,state,logs}
 - 在构建机执行：
 
 ```bash
-mvn -q -DskipTests package
+./mvnw -q -DskipTests package
 ```
 
 - 上传以下文件到服务器：
@@ -830,6 +857,18 @@ cron 示例：
 - `row_diff_sample.csv`
 - `manifest.json`
 
+diff sample 的 `key/source_value/target_value` 默认在持久化前脱敏。通过
+`output.value_mode` 可选择：
+
+- `masked`：非空值写为 `***`，默认值
+- `hash`：写入 SHA-256 摘要，便于跨报告关联；摘要不是加密
+- `omit`：不持久化样本值
+- `raw`：保留明文，只应在明确授权且访问受控的目录中使用
+
+`slice_key` 和 `resume_hint` 是复查所需的操作值，不受该模式处理，仍可能包含
+业务分区信息。HTML 动态内容会自动转义，CSV 单元格会中和电子表格公式前缀。
+详细威胁边界见 [SECURITY.md](SECURITY.md)。
+
 `report.json` 建议至少包含以下字段：
 
 - `plan.scale_class`
@@ -927,6 +966,22 @@ data-audit/
 └── tests/
     └── ...
 ```
+
+## 参与贡献
+
+项目使用 Apache License 2.0。提交代码前请阅读
+[CONTRIBUTING.md](CONTRIBUTING.md) 和 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)，
+安全问题请按 [SECURITY.md](SECURITY.md) 私下报告。
+
+本地提交前的基线验证：
+
+```bash
+./mvnw verify
+python -m pytest -q data-audit-agent
+```
+
+版本发布由 `v*` 标签触发，产物包含完整 CLI、AI wrapper、CycloneDX SBOM 和
+SHA-256 校验文件。
 
 ## 总结
 
