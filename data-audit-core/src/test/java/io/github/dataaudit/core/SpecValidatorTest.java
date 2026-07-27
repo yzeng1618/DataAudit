@@ -61,6 +61,16 @@ class SpecValidatorTest {
         assertTrue(issues.stream().anyMatch(issue -> issue.contains("Delta native support is design-reserved")));
     }
 
+    @Test
+    void shouldRejectUnsupportedEvidenceValueMode() {
+        TaskFileSpec spec = validJdbcSpec();
+        spec.output.valueMode = "encrypt";
+
+        List<String> issues = new SpecValidator().validate(spec);
+
+        assertTrue(issues.contains("output.value_mode must be masked, hash, omit or raw"));
+    }
+
     private TaskFileSpec validJdbcSpec() {
         TaskFileSpec spec = new TaskFileSpec();
         spec.task.name = "validator_it";

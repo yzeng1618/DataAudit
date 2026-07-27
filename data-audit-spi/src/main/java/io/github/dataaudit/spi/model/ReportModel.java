@@ -13,6 +13,7 @@ public class ReportModel {
     public String artifactType = "report";
     public String producer = "data-audit-cli";
     public String schemaVersion = "data-audit-report-v1";
+    public String evidenceValueMode = "raw";
     public String taskName;
     public OffsetDateTime createdAt = generatedAt;
     public PlanSection plan = new PlanSection();
@@ -41,6 +42,10 @@ public class ReportModel {
 
     public String getSchemaVersion() {
         return schemaVersion;
+    }
+
+    public String getEvidenceValueMode() {
+        return evidenceValueMode;
     }
 
     public String getTaskName() {

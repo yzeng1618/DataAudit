@@ -3,6 +3,7 @@
   "artifact_type": "report",
   "producer": "data-audit-cli",
   "schema_version": "data-audit-report-v1",
+  "evidence_value_mode": "raw",
   "run_id": "fixture-jdbc-iceberg",
   "task_name": "fixture_jdbc_iceberg",
   "generated_at": "2026-06-08T00:00:00Z",

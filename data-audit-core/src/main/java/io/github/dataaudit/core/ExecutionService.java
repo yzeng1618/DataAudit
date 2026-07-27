@@ -42,6 +42,7 @@ public class ExecutionService {
     private final LocalizationEngine localizationEngine = new LocalizationEngine();
     private final RootCauseEngine rootCauseEngine = new RootCauseEngine();
     private final ExactDiffExecutor exactDiffExecutor;
+    private final ReportValueProtector reportValueProtector = new ReportValueProtector();
 
     public ExecutionService(ConnectorRegistry connectorRegistry,
                             StateStore stateStore,
@@ -404,10 +405,11 @@ public class ExecutionService {
                                 List<SliceDescriptor> slices) throws Exception {
         stateStore.saveSlices(runId, slices, status);
         Path outputDir = Paths.get(spec.output.dir);
-        ReportWriter.ReportArtifacts artifacts = reportWriter.write(report, outputDir);
+        ReportModel protectedReport = reportValueProtector.protect(report, spec.output.valueMode);
+        ReportWriter.ReportArtifacts artifacts = reportWriter.write(protectedReport, outputDir);
         stateStore.completeRun(runId, status, artifacts.getJsonPath(), artifacts.getHtmlPath());
-        stateStore.attachReport(runId, report);
-        return report;
+        stateStore.attachReport(runId, protectedReport);
+        return protectedReport;
     }
 
     private ReportModel baseReport(TaskFileSpec spec, ExecutionPlan plan) {

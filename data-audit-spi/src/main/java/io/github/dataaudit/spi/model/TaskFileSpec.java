@@ -132,6 +132,7 @@ public class TaskFileSpec {
     public static class OutputSpec {
         public String dir = "./reports/default";
         public List<String> format = defaultFormats();
+        public String valueMode = "masked";
 
         private static List<String> defaultFormats() {
             List<String> values = new ArrayList<>();

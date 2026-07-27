@@ -31,6 +31,11 @@ public class SpecValidator {
         }
         if (spec.output == null || isBlank(spec.output.dir)) {
             issues.add("output.dir is required");
+        } else if (!isBlank(spec.output.valueMode)) {
+            String valueMode = spec.output.valueMode.toLowerCase(Locale.ROOT);
+            if (!List.of("masked", "hash", "omit", "raw").contains(valueMode)) {
+                issues.add("output.value_mode must be masked, hash, omit or raw");
+            }
         }
         validateResources(spec, issues);
         return issues;
