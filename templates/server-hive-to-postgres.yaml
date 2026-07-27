@@ -41,39 +41,28 @@ object:
   key:
     - order_id
   columns:
-    include:
-      - order_id
-      - shop_id
-      - status
-      - amount
-      - dt
+    - order_id
+    - shop_id
+    - status
+    - amount
+    - dt
+  partition_by:
+    - dt
+  estimated_rows: 200000000
 
 planner:
-  mode: segment_first
-  hints:
-    estimated_rows: 200000000
-    partition_keys:
-      - dt
-    max_exact_rows: 100000
+  scale_override: xlarge
 
-normalization:
+normalize:
   timezone: Asia/Shanghai
   trim_string: true
   empty_as_null: true
   decimal_scale:
     amount: 2
 
-compare:
-  segment:
-    by:
-      - dt
-    chunk_rows: 1000000
-  diff:
-    max_samples: 200
+resources:
+  max_in_memory_rows: 100000
+  max_diff_samples: 200
 
 output:
   dir: /opt/data-audit/reports/hive_to_postgres_orders_ads
-
-state:
-  backend: sqlite
-  path: /opt/data-audit/state/hive_to_postgres_orders_ads.db

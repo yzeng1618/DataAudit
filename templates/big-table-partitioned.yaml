@@ -29,22 +29,12 @@ target:
 object:
   key:
     - order_id
+  partition_by:
+    - dt
+  estimated_rows: 10000000
 
 planner:
-  mode: auto
-  hints:
-    estimated_rows: 10000000
-    partition_keys:
-      - dt
-
-compare:
-  segment:
-    by:
-      - dt
+  scale_override: large
 
 output:
   dir: ./reports/big_table_partitioned
-
-state:
-  backend: sqlite
-  path: ./.recon/state.db

@@ -689,26 +689,18 @@ target:
 object:
   key:
     - order_id
+  partition_by:
+    - dt
+  estimated_rows: 5000000
 
 planner:
-  mode: auto
-  hints:
-    estimated_rows: 5000000
-    partition_keys:
-      - dt
-    max_exact_rows: 100000
+  scale_override: large
 
-compare:
-  segment:
-    by:
-      - dt
+resources:
+  max_in_memory_rows: 100000
 
 output:
   dir: /opt/data-audit/reports/mysql_to_doris_orders
-
-state:
-  backend: sqlite
-  path: /opt/data-audit/state/mysql_to_doris_orders.db
 ```
 
 ##### hive -> postgres
@@ -748,26 +740,18 @@ target:
 object:
   key:
     - order_id
+  partition_by:
+    - dt
+  estimated_rows: 200000000
 
 planner:
-  mode: segment_first
-  hints:
-    estimated_rows: 200000000
-    partition_keys:
-      - dt
-    max_exact_rows: 100000
+  scale_override: xlarge
 
-compare:
-  segment:
-    by:
-      - dt
+resources:
+  max_in_memory_rows: 100000
 
 output:
   dir: /opt/data-audit/reports/hive_to_postgres_orders_ads
-
-state:
-  backend: sqlite
-  path: /opt/data-audit/state/hive_to_postgres_orders_ads.db
 ```
 
 ##### jdbc -> iceberg

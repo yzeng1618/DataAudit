@@ -26,14 +26,11 @@ target:
   options:
     dialect: postgres
 
+object:
+  estimated_rows: 500000
+
 planner:
-  mode: auto
-  hints:
-    estimated_rows: 500000
+  scale_override: large
 
 output:
   dir: ./reports/realtime_window_result
-
-state:
-  backend: sqlite
-  path: ./.recon/state.db

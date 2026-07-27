@@ -41,39 +41,29 @@ object:
   key:
     - order_id
   columns:
-    include:
-      - order_id
-      - user_id
-      - status
-      - amount
-      - update_time
-      - dt
+    - order_id
+    - user_id
+    - status
+    - amount
+    - update_time
+    - dt
+  partition_by:
+    - dt
+  estimated_rows: 5000000
 
 planner:
-  mode: auto
-  hints:
-    estimated_rows: 5000000
-    partition_keys:
-      - dt
-    max_exact_rows: 100000
+  scale_override: large
 
-normalization:
+normalize:
   timezone: Asia/Shanghai
   trim_string: true
   empty_as_null: true
   decimal_scale:
     amount: 2
 
-compare:
-  segment:
-    by:
-      - dt
-  diff:
-    max_samples: 200
+resources:
+  max_in_memory_rows: 100000
+  max_diff_samples: 200
 
 output:
   dir: /opt/data-audit/reports/mysql_to_doris_orders
-
-state:
-  backend: sqlite
-  path: /opt/data-audit/state/mysql_to_doris_orders.db

@@ -29,22 +29,12 @@ target:
 object:
   key:
     - order_id
+  partition_by:
+    - dt
+  estimated_rows: 200000000
 
 planner:
-  mode: auto
-  hints:
-    estimated_rows: 200000000
-    partition_keys:
-      - dt
-
-compare:
-  segment:
-    by:
-      - dt
+  scale_override: xlarge
 
 output:
   dir: ./reports/hive_partitioned_orders
-
-state:
-  backend: sqlite
-  path: ./.recon/state.db

@@ -29,21 +29,15 @@ target:
 object:
   key:
     - order_id
+  partition_by:
+    - dt
+  estimated_rows: 500000
 
 planner:
-  mode: auto
-  hints:
-    estimated_rows: 500000
-    max_exact_rows: 100000
+  scale_override: large
 
-compare:
-  segment:
-    by:
-      - dt
+resources:
+  max_in_memory_rows: 100000
 
 output:
   dir: ./reports/doris_result_check
-
-state:
-  backend: sqlite
-  path: ./.recon/state.db
