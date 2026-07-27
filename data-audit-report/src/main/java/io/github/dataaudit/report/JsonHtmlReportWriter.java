@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import freemarker.core.HTMLOutputFormat;
 import freemarker.template.Configuration;
 import freemarker.template.Template;
 import freemarker.template.TemplateExceptionHandler;
@@ -33,6 +34,8 @@ public class JsonHtmlReportWriter implements ReportWriter {
         this.configuration.setClassLoaderForTemplateLoading(getClass().getClassLoader(), "/templates");
         this.configuration.setDefaultEncoding("UTF-8");
         this.configuration.setTemplateExceptionHandler(TemplateExceptionHandler.RETHROW_HANDLER);
+        this.configuration.setOutputFormat(HTMLOutputFormat.INSTANCE);
+        this.configuration.setAutoEscapingPolicy(Configuration.ENABLE_IF_SUPPORTED_AUTO_ESCAPING_POLICY);
     }
 
     @Override
@@ -101,6 +104,17 @@ public class JsonHtmlReportWriter implements ReportWriter {
         if (value == null) {
             return "";
         }
-        return "\"" + value.replace("\"", "\"\"") + "\"";
+        String safeValue = startsWithFormulaTrigger(value) ? "'" + value : value;
+        return "\"" + safeValue.replace("\"", "\"\"") + "\"";
+    }
+
+    private boolean startsWithFormulaTrigger(String value) {
+        if (value.isEmpty()) {
+            return false;
+        }
+        return switch (value.charAt(0)) {
+            case '=', '+', '-', '@', '\t', '\r' -> true;
+            default -> false;
+        };
     }
 }

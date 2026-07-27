@@ -1,3 +1,4 @@
+<#ftl output_format="HTML" auto_esc=true>
 <!DOCTYPE html>
 <html lang="en">
 <head>

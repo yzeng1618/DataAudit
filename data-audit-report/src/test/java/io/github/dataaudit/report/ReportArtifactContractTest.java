@@ -8,11 +8,14 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import io.github.dataaudit.spi.model.BoundaryRef;
 import io.github.dataaudit.spi.model.ConfidenceLevel;
+import io.github.dataaudit.spi.model.DiffResult;
 import io.github.dataaudit.spi.model.ProofMode;
 import io.github.dataaudit.spi.model.ReportModel;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
@@ -100,6 +103,30 @@ class ReportArtifactContractTest {
     }
 
     @Test
+    void writerEscapesHtmlAndNeutralizesSpreadsheetFormulas() throws Exception {
+        ReportModel report = new ReportModel();
+        report.plan.boundary = new BoundaryRef();
+        DiffResult.DiffSample sample = new DiffResult.DiffSample();
+        sample.type = "mismatch";
+        sample.key = "=1+1";
+        sample.sourceValue = "<script>alert('x')</script>";
+        sample.targetValue = "@SUM(1,1)";
+        sample.sliceKey = "+danger";
+        report.result.diff.samples.add(sample);
+
+        new JsonHtmlReportWriter().write(report, tempDir);
+
+        String html = Files.readString(tempDir.resolve("report.html"), StandardCharsets.UTF_8);
+        assertFalse(html.contains("<script>alert('x')</script>"));
+        assertTrue(html.contains("&lt;script&gt;alert(&#39;x&#39;)&lt;/script&gt;"));
+
+        String csv = Files.readString(tempDir.resolve("row_diff_sample.csv"), StandardCharsets.UTF_8);
+        assertTrue(csv.contains("\"'=1+1\""));
+        assertTrue(csv.contains("\"'@SUM(1,1)\""));
+        assertTrue(csv.contains("\"'+danger\""));
+    }
+
+    @Test
     void productAcceptanceFixturesExposeArtifactMetadataAndLockedFacts() throws Exception {
         List<String> scenarios = List.of(
                 "jdbc-jdbc",
@@ -114,6 +141,7 @@ class ReportArtifactContractTest {
             assertEquals("1", root.path("artifact_version").asText(), scenario);
             assertEquals("report", root.path("artifact_type").asText(), scenario);
             assertEquals("data-audit-cli", root.path("producer").asText(), scenario);
+            assertFalse(root.path("evidence_value_mode").asText().isBlank(), scenario);
             assertFalse(root.path("result").path("status").asText().isBlank(), scenario);
             assertFalse(root.path("result").path("proof_mode").asText().isBlank(), scenario);
             assertFalse(root.path("result").path("confidence").asText().isBlank(), scenario);
