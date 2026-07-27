@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  java-linux:
+    name: Java / Ubuntu
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+      - name: Verify
+        run: ./mvnw -B verify
+      - name: Upload Java test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: java-test-reports-linux
+          path: |
+            **/target/surefire-reports/**
+            **/target/failsafe-reports/**
+
+  java-windows:
+    name: Java / Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+      - name: Test portable modules
+        shell: pwsh
+        run: .\mvnw.cmd -B "-DexcludedGroups=requires-posix-filesystem" test
+      - name: Upload Java test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: java-test-reports-windows
+          path: |
+            **/target/surefire-reports/**
+            **/target/failsafe-reports/**
+
+  python:
+    name: Python agent
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: data-audit-agent/requirements.txt
+      - name: Install dependencies
+        run: python -m pip install -r data-audit-agent/requirements.txt
+      - name: Test
+        run: python -m pytest -q data-audit-agent

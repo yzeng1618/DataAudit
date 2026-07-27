@@ -28,6 +28,9 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>17</maven.compiler.release>
+        <maven.minimum.version>3.9.0</maven.minimum.version>
+        <maven.enforcer.version>3.5.0</maven.enforcer.version>
+        <cyclonedx.version>2.9.1</cyclonedx.version>
         <junit.version>5.10.2</junit.version>
         <jackson.version>2.17.2</jackson.version>
         <picocli.version>4.7.6</picocli.version>
@@ -209,5 +212,50 @@
                 </plugin>
             </plugins>
         </pluginManagement>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <version>${maven.enforcer.version}</version>
+                <executions>
+                    <execution>
+                        <id>enforce-build-environment</id>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <requireJavaVersion>
+                                    <version>[17,)</version>
+                                </requireJavaVersion>
+                                <requireMavenVersion>
+                                    <version>[${maven.minimum.version},)</version>
+                                </requireMavenVersion>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.cyclonedx</groupId>
+                <artifactId>cyclonedx-maven-plugin</artifactId>
+                <version>${cyclonedx.version}</version>
+                <inherited>false</inherited>
+                <executions>
+                    <execution>
+                        <id>aggregate-sbom</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>makeAggregateBom</goal>
+                        </goals>
+                        <configuration>
+                            <outputFormat>json</outputFormat>
+                            <outputName>bom</outputName>
+                            <includeTestScope>false</includeTestScope>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
     </build>
 </project>

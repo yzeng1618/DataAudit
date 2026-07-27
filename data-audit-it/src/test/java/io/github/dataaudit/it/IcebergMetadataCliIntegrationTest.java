@@ -7,6 +7,7 @@ import io.github.dataaudit.connector.iceberg.IcebergConnectorFactory;
 import io.github.dataaudit.it.support.IcebergFixtureSupport;
 import io.github.dataaudit.spi.connector.ConnectorBundle;
 import io.github.dataaudit.spi.model.TaskFileSpec;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import picocli.CommandLine;
 
@@ -22,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+@Tag("requires-posix-filesystem")
 class IcebergMetadataCliIntegrationTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
