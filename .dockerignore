@@ -1,0 +1,12 @@
+.git
+.github
+.idea
+.tmp
+.tools
+.worktrees
+openspec
+docs
+data-audit-agent
+**/src/test
+**/target/*
+!data-audit-cli/target/data-audit.jar

@@ -1,0 +1,32 @@
+name: Feature request
+description: Propose a focused capability or improvement
+title: "[Feature] "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Use case
+      description: Describe the audit workflow and user outcome.
+    validations:
+      required: true
+  - type: textarea
+    id: current_limit
+    attributes:
+      label: Current limitation
+      description: Explain why existing commands, connectors, or reports are insufficient.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Include CLI, configuration, compatibility, and security expectations.
+    validations:
+      required: true
+  - type: input
+    id: connectors
+    attributes:
+      label: Relevant connector types
+      placeholder: trino, jdbc, iceberg, or not connector-specific
