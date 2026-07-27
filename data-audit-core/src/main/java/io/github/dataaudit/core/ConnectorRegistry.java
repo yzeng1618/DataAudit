@@ -5,6 +5,7 @@ import io.github.dataaudit.spi.connector.ConnectorFactory;
 import io.github.dataaudit.spi.model.TaskFileSpec;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.ServiceLoader;
 
@@ -28,5 +29,15 @@ public class ConnectorRegistry {
             }
         }
         throw new IllegalArgumentException("Unsupported endpoint type: " + endpointSpec.type);
+    }
+
+    public List<String> types() {
+        List<String> types = factories.stream()
+                .map(ConnectorFactory::type)
+                .filter(type -> type != null && !type.isBlank())
+                .distinct()
+                .sorted()
+                .toList();
+        return Collections.unmodifiableList(types);
     }
 }

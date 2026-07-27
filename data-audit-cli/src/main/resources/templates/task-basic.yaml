@@ -1,0 +1,43 @@
+task:
+  name: example_reconciliation
+  description: Compare two JDBC tables after a data job finishes.
+  mode: post_check
+
+boundary:
+  type: job_finish
+  reference: latest
+
+source:
+  type: jdbc
+  url: jdbc:sqlite:./data/source.db
+  table: source_orders
+
+target:
+  type: jdbc
+  url: jdbc:sqlite:./data/target.db
+  table: target_orders
+
+object:
+  key:
+    - order_id
+  columns:
+    - order_id
+    - amount
+  estimated_rows: 1000
+
+normalize:
+  timezone: UTC
+  trim_string: false
+  empty_as_null: false
+
+resources:
+  max_in_memory_rows: 100000
+  max_diff_samples: 100
+
+output:
+  dir: ./reports/example_reconciliation
+  format:
+    - json
+    - html
+    - csv
+  value_mode: masked

@@ -46,6 +46,9 @@ import io.github.dataaudit.core.SchemaEngine;
 import io.github.dataaudit.core.SegmentEngine;
 import io.github.dataaudit.core.SpecValidator;
 import io.github.dataaudit.core.SummaryEngine;
+import io.github.dataaudit.cli.config.ConfigCheckResult;
+import io.github.dataaudit.cli.config.TaskConfigService;
+import io.github.dataaudit.cli.doctor.DoctorService;
 import io.github.dataaudit.report.JsonHtmlReportWriter;
 import io.github.dataaudit.spi.model.ExecutionPlan;
 import io.github.dataaudit.spi.model.ReportModel;
@@ -82,6 +85,8 @@ import java.util.jar.Manifest;
                 DataAuditMain.DiffCommand.class,
                 DataAuditMain.ReportCommand.class,
                 DataAuditMain.AiCommand.class,
+                DataAuditMain.ConfigCommand.class,
+                DataAuditMain.DoctorCommand.class,
                 DataAuditMain.VersionCommand.class
         }
 )
@@ -505,6 +510,102 @@ public class DataAuditMain implements Runnable {
             System.out.println("java_version=" + safeMetadata(System.getProperty("java.version")));
             return 0;
         }
+    }
+
+    @Command(
+            name = "config",
+            mixinStandardHelpOptions = true,
+            description = "Initialize and validate task configuration.",
+            subcommands = {ConfigInitCommand.class, ConfigValidateCommand.class}
+    )
+    static class ConfigCommand implements Runnable {
+        @Override
+        public void run() {
+            CommandLine.usage(this, System.out);
+        }
+    }
+
+    @Command(name = "init", mixinStandardHelpOptions = true, description = "Create a starter task configuration.")
+    static class ConfigInitCommand implements Callable<Integer> {
+        @Option(names = {"-o", "--output"}, defaultValue = "task.yaml", description = "output task yaml path")
+        private Path output;
+
+        @Option(names = "--force", description = "overwrite an existing file")
+        private boolean force;
+
+        @Override
+        public Integer call() throws Exception {
+            ConfigCheckResult result = configService().initialize(output, force);
+            printChecks(result, "text");
+            return result.isOk() ? 0 : 2;
+        }
+    }
+
+    @Command(name = "validate", mixinStandardHelpOptions = true, description = "Validate a task configuration.")
+    static class ConfigValidateCommand implements Callable<Integer> {
+        @Option(names = {"-f", "--file"}, required = true, description = "task yaml path")
+        private Path taskFile;
+
+        @Option(names = "--test-connection", description = "open and probe source and target connectors")
+        private boolean testConnection;
+
+        @Option(names = "--format", defaultValue = "text", description = "text or json")
+        private String format;
+
+        @Override
+        public Integer call() throws Exception {
+            ConfigCheckResult result = configService().validate(taskFile, testConnection);
+            printChecks(result, format);
+            if (result.isOk()) {
+                return 0;
+            }
+            return hasConnectionFailure(result) ? 4 : 2;
+        }
+    }
+
+    @Command(name = "doctor", mixinStandardHelpOptions = true, description = "Diagnose runtime readiness.")
+    static class DoctorCommand implements Callable<Integer> {
+        @Option(names = {"-f", "--file"}, description = "optional task yaml path")
+        private Path taskFile;
+
+        @Option(names = "--output-dir", defaultValue = ".", description = "directory to test for write access")
+        private Path outputDir;
+
+        @Option(names = "--test-connection", description = "open and probe configured source and target connectors")
+        private boolean testConnection;
+
+        @Option(names = "--format", defaultValue = "text", description = "text or json")
+        private String format;
+
+        @Override
+        public Integer call() throws Exception {
+            ConnectorRegistry registry = ConnectorRegistry.load();
+            TaskConfigService configService = new TaskConfigService(registry, new SpecValidator(), System::getenv);
+            ConfigCheckResult result = new DoctorService(registry, configService)
+                    .diagnose(taskFile, outputDir, testConnection);
+            printChecks(result, format);
+            return result.isOk() ? 0 : 4;
+        }
+    }
+
+    private static TaskConfigService configService() {
+        return new TaskConfigService(ConnectorRegistry.load(), new SpecValidator(), System::getenv);
+    }
+
+    private static void printChecks(ConfigCheckResult result, String format) throws Exception {
+        if ("json".equalsIgnoreCase(format)) {
+            System.out.println(objectMapper().writeValueAsString(result));
+            return;
+        }
+        for (ConfigCheckResult.Check check : result.checks) {
+            System.out.println("[" + check.status.toUpperCase(Locale.ROOT) + "] "
+                    + check.name + ": " + check.message);
+        }
+    }
+
+    private static boolean hasConnectionFailure(ConfigCheckResult result) {
+        return result.checks.stream()
+                .anyMatch(check -> check.name.endsWith("_connection") && "error".equals(check.status));
     }
 
     private static ExecutionService newExecutionService(TaskFileSpec spec) {
