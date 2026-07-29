@@ -119,6 +119,7 @@ planner 的职责不是“选算法炫技”，而是根据对象能力、边界
 
 完整架构见 [docs/design.md](docs/design.md)。
 配置样例、参数说明和当前实现限制见 [docs/config-examples.md](docs/config-examples.md)。
+首次本地验证及真实数据的分阶段试用步骤见 [docs/trial-guide.md](docs/trial-guide.md)。
 
 ## 首版 Connector 策略
 
