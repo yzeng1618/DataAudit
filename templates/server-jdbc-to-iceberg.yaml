@@ -9,7 +9,7 @@ boundary:
 
 source:
   type: jdbc
-  url: jdbc:postgresql://postgres-source.prod:5432/app?connectTimeout=5000&socketTimeout=300000&tcpKeepAlive=true
+  url: jdbc:postgresql://postgres-source.example:5432/app?connectTimeout=5000&socketTimeout=300000&tcpKeepAlive=true
   username: app_read
   password: ${SRC_PASSWORD}
   query: |

@@ -9,7 +9,7 @@ boundary:
 
 source:
   type: jdbc
-  url: jdbc:hive2://hive-server.prod:10000/dw
+  url: jdbc:hive2://hive-server.example:10000/dw
   username: hive_read
   password: ${SRC_PASSWORD}
   query: |
@@ -24,7 +24,7 @@ source:
 
 target:
   type: jdbc
-  url: jdbc:postgresql://postgres-ads.prod:5432/ads?connectTimeout=5000&socketTimeout=300000&tcpKeepAlive=true
+  url: jdbc:postgresql://postgres-ads.example:5432/ads?connectTimeout=5000&socketTimeout=300000&tcpKeepAlive=true
   username: ads_read
   password: ${TGT_PASSWORD}
   query: |

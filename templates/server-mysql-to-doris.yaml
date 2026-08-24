@@ -9,7 +9,7 @@ boundary:
 
 source:
   type: jdbc
-  url: jdbc:mysql://mysql-source.prod:3306/app?connectTimeout=5000&socketTimeout=300000&tcpKeepAlive=true&useSSL=false
+  url: jdbc:mysql://mysql-source.example:3306/app?connectTimeout=5000&socketTimeout=300000&tcpKeepAlive=true&useSSL=false
   username: app_read
   password: ${SRC_PASSWORD}
   query: |
@@ -24,7 +24,7 @@ source:
 
 target:
   type: jdbc
-  url: jdbc:mysql://doris-fe.prod:9030/ads?connectTimeout=5000&socketTimeout=300000&tcpKeepAlive=true&useSSL=false
+  url: jdbc:mysql://doris-fe.example:9030/ads?connectTimeout=5000&socketTimeout=300000&tcpKeepAlive=true&useSSL=false
   username: doris_read
   password: ${TGT_PASSWORD}
   query: |

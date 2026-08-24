@@ -14,7 +14,7 @@ target:
   type: jdbc
   url: jdbc:postgresql://target:5432/app
   username: app
-  password: target_password
+  password: ${TGT_PASSWORD}
   table: public.orders
   options:
     dialect: postgres

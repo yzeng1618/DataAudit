@@ -6,7 +6,7 @@ source:
   type: jdbc
   url: jdbc:postgresql://source:5432/app
   username: app
-  password: secret
+  password: ${SRC_PASSWORD}
   table: public.events
   options:
     dialect: postgres
@@ -14,7 +14,7 @@ target:
   type: jdbc
   url: jdbc:postgresql://target:5432/app
   username: app
-  password: secret
+  password: ${TGT_PASSWORD}
   table: public.events_copy
   options:
     dialect: postgres
