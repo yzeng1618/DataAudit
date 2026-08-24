@@ -11,18 +11,13 @@
 - 能对一致和不一致的数据输出可解释的计划、状态与证据文件；
 - 能在报告中定位异常切片，并在不一致时以退出码 `1` 供调度系统或 CI 识别。
 
-本指南以 `codex/open-source-release-baseline` 当前提交为基线。它在本地 `master`
-之后增加了可复现构建、`config init` / `config validate` / `doctor`、严格 v1 配置和
-默认脱敏报告等实现。开始前先确认检出的提交，避免用旧版 `master` 试用：
+本指南以 `master` 最新提交为基线。开始前先确认检出的提交：
 
 ```powershell
 git fetch origin
-git switch codex/open-source-release-baseline
+git switch master
 git log -1 --oneline
 ```
-
-若团队决定将该实现作为主线，请在代码评审和 CI 均通过后由仓库管理员把该分支
-fast-forward 合入并推送到 `master`；不要以本地未验证的工作区内容覆盖远端 `master`。
 
 ## 2. 前置条件
 
