@@ -18,6 +18,7 @@ import picocli.CommandLine;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -31,7 +32,10 @@ class TrinoCliIntegrationTest {
     @Container
     static GenericContainer<?> trino = new GenericContainer<>("trinodb/trino:471")
             .withExposedPorts(8080)
-            .waitingFor(Wait.forHttp("/v1/info").forStatusCode(200));
+            // /v1/info answers 200 while the server is still initializing; the log
+            // banner is the only signal that queries will be accepted.
+            .waitingFor(Wait.forLogMessage(".*======== SERVER STARTED ========.*\\s", 1)
+                    .withStartupTimeout(Duration.ofMinutes(5)));
 
     @Test
     void shouldUseTrinoTableModeForSmallExactDiff() throws Exception {
