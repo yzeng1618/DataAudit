@@ -9,6 +9,7 @@ and this project intends to use [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Initial CLI-first data consistency audit implementation.
 - Apache-2.0 open-source governance baseline.
 - `config init`, offline `config validate`, and aggregated `doctor` commands.
 - Maven 3.9.9 Wrapper, Java/Maven build gates, CycloneDX SBOM generation,
@@ -27,6 +28,4 @@ and this project intends to use [Semantic Versioning](https://semver.org/).
 - Repository task templates and configuration documentation now match the
   strict v1 configuration model.
 
-## [0.1.0] - Unreleased
-
-- Initial CLI-first data consistency audit implementation.
+[Unreleased]: https://github.com/yzeng1618/DataAudit/commits/master

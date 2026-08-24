@@ -44,10 +44,9 @@ is officially representing the community in public spaces.
 
 ## Enforcement
 
-Report abusive, harassing, or otherwise unacceptable behavior privately to the
-repository maintainers using the repository owner's private contact or
-reporting channels. Reports will be reviewed promptly and fairly. Maintainers
-must respect the privacy and security of reporters.
+Report abusive, harassing, or otherwise unacceptable behavior privately to
+the maintainer at <yzeng1618@gmail.com>. Reports will be reviewed promptly
+and fairly. Maintainers must respect the privacy and security of reporters.
 
 ## Enforcement Guidelines
 

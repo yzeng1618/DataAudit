@@ -5,13 +5,22 @@
 Do not publish security vulnerabilities, credentials, production data, or
 working exploit details in a public issue.
 
-Use GitHub private vulnerability reporting when it is enabled for this
-repository. If it is unavailable, contact the repository maintainers through
-the repository owner's private channels and provide only enough public context
-to arrange a private report.
+Report vulnerabilities privately through GitHub private vulnerability
+reporting: open the Security tab of
+<https://github.com/yzeng1618/DataAudit> and choose "Report a vulnerability".
+While the repository is private, or if the feature is unavailable, email the
+maintainer at <yzeng1618@gmail.com> instead, sharing only enough public
+context to arrange a private report.
 
 Include the affected version, configuration, impact, reproduction steps, and
 any proposed mitigation. Remove secrets and customer data.
+
+## Response expectations
+
+We aim to acknowledge new reports within 7 days and to share an initial
+assessment within 30 days. Please allow up to 90 days of coordinated
+disclosure before publishing details, longer if a fix has to ship through a
+scheduled release.
 
 ## Supported versions
 
