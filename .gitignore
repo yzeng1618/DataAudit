@@ -16,3 +16,16 @@ __pycache__/
 *.pyc
 hs_err_pid*.log
 replay_pid*.log
+
+# Guard against a mangled -Dmaven.repo.local path recreating a local repo dir in the tree
+*apache-maven-*-bin*
+
+# Internal process artifacts intentionally kept out of the open-source tree
+openspec/
+.codex/
+docs/superpowers/
+docs/interview-ai-talking-points.md
+docs/deep-research-report.md
+docs/seatunnel-dev-feature-plan.md
+docs/ai-implementation-review.md
+docs/agent-harness-architecture-study-guide.md

@@ -62,8 +62,7 @@ function Assert-True {
 
 function Get-SqliteJdbcJar {
     $candidates = @(
-        (Join-Path $env:USERPROFILE ".m2\repository\org\xerial\sqlite-jdbc"),
-        "D:\workspace\mvn_repo\org\xerial\sqlite-jdbc"
+        (Join-Path $env:USERPROFILE ".m2\repository\org\xerial\sqlite-jdbc")
     )
     foreach ($base in $candidates) {
         if (Test-Path $base) {
@@ -80,8 +79,7 @@ function Get-SqliteJdbcJar {
 
 function Get-Slf4jApiJar {
     $candidates = @(
-        (Join-Path $env:USERPROFILE ".m2\repository\org\slf4j\slf4j-api"),
-        "D:\workspace\mvn_repo\org\slf4j\slf4j-api"
+        (Join-Path $env:USERPROFILE ".m2\repository\org\slf4j\slf4j-api")
     )
     foreach ($base in $candidates) {
         if (Test-Path $base) {

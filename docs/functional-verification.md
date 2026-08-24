@@ -782,8 +782,6 @@ mvn -q -pl data-audit-report,data-audit-cli -am `
 
 ## 10.2 Runtime Hardening 验证
 
-产品化运行时硬化以 `openspec/changes/productize-cli-runtime-hardening` 为准。
-
 新增或修改 CLI 配置加载、连接器校验、打包或部署文档后，需要确认：
 
 - `task.yaml` 中受支持字段的 `${ENV_VAR}` 会在验证和执行前展开。
