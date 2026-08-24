@@ -11,6 +11,30 @@
 
     <name>data-audit-parent</name>
     <description>Task-post consistency audit CLI for databases and lakehouse objects.</description>
+    <url>https://github.com/yzeng1618/DataAudit</url>
+
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <id>yzeng1618</id>
+            <name>zengyi</name>
+            <url>https://github.com/yzeng1618</url>
+        </developer>
+    </developers>
+
+    <scm>
+        <connection>scm:git:https://github.com/yzeng1618/DataAudit.git</connection>
+        <developerConnection>scm:git:git@github.com:yzeng1618/DataAudit.git</developerConnection>
+        <url>https://github.com/yzeng1618/DataAudit</url>
+        <tag>HEAD</tag>
+    </scm>
 
     <modules>
         <module>data-audit-spi</module>
