@@ -107,10 +107,15 @@
                                     <manifestEntries>
                                         <Implementation-Title>data-audit-cli</Implementation-Title>
                                         <Implementation-Version>${project.version}</Implementation-Version>
-                                        <Build-Time>${maven.build.timestamp}</Build-Time>
+                                        <Build-Time>${project.build.outputTimestamp}</Build-Time>
+                                        <Git-Commit>${git.commit}</Git-Commit>
                                     </manifestEntries>
                                 </transformer>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ApacheLicenseResourceTransformer"/>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ApacheNoticeResourceTransformer">
+                                    <projectName>data-audit</projectName>
+                                </transformer>
                             </transformers>
                             <finalName>data-audit</finalName>
                         </configuration>
@@ -129,10 +134,15 @@
                                     <manifestEntries>
                                         <Implementation-Title>data-audit-cli</Implementation-Title>
                                         <Implementation-Version>${project.version}</Implementation-Version>
-                                        <Build-Time>${maven.build.timestamp}</Build-Time>
+                                        <Build-Time>${project.build.outputTimestamp}</Build-Time>
+                                        <Git-Commit>${git.commit}</Git-Commit>
                                     </manifestEntries>
                                 </transformer>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ApacheLicenseResourceTransformer"/>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ApacheNoticeResourceTransformer">
+                                    <projectName>data-audit</projectName>
+                                </transformer>
                             </transformers>
                             <finalName>dataaudit-ai</finalName>
                         </configuration>

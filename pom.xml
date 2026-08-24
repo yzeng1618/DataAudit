@@ -51,6 +51,10 @@
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!-- Fixed timestamp for reproducible builds; bump alongside each release. -->
+        <project.build.outputTimestamp>2026-08-24T00:00:00Z</project.build.outputTimestamp>
+        <!-- Overridden by CI with -Dgit.commit=<sha> so `version` can report provenance. -->
+        <git.commit>unknown</git.commit>
         <maven.compiler.release>17</maven.compiler.release>
         <maven.minimum.version>3.9.0</maven.minimum.version>
         <maven.enforcer.version>3.5.0</maven.enforcer.version>
@@ -149,11 +153,32 @@
                 <groupId>org.apache.hadoop</groupId>
                 <artifactId>hadoop-common</artifactId>
                 <version>${hadoop.version}</version>
+                <exclusions>
+                    <!-- EOL log4j 1.x carries known CVEs; hadoop already ships reload4j. -->
+                    <exclusion>
+                        <groupId>log4j</groupId>
+                        <artifactId>log4j</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.slf4j</groupId>
+                        <artifactId>slf4j-log4j12</artifactId>
+                    </exclusion>
+                </exclusions>
             </dependency>
             <dependency>
                 <groupId>org.apache.hadoop</groupId>
                 <artifactId>hadoop-mapreduce-client-core</artifactId>
                 <version>${hadoop.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>log4j</groupId>
+                        <artifactId>log4j</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.slf4j</groupId>
+                        <artifactId>slf4j-log4j12</artifactId>
+                    </exclusion>
+                </exclusions>
             </dependency>
             <dependency>
                 <groupId>org.junit.jupiter</groupId>
