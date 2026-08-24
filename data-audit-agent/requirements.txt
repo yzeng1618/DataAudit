@@ -1,0 +1,4 @@
+# Test-only dependencies for the optional Python agent sidecar.
+# The runtime package itself uses only the standard library; LangGraph is an
+# optional extra (pip install -e .[langgraph]).
+pytest>=7.4
