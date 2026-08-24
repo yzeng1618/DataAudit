@@ -278,7 +278,7 @@ semantics:
     write_mode: overwrite
 ```
 
-显式配置优先于 AI 推断；例如 `object.key`、`object.partition_by`、`normalize.timezone` 和 `semantics.ai.write_mode` 会作为强证据进入 plan。完整设计见 [docs/ai-design.md](docs/ai-design.md)，实现和 review 说明见 [docs/ai-implementation-review.md](docs/ai-implementation-review.md)，示例见 `examples/ai-copilot/`。
+显式配置优先于 AI 推断；例如 `object.key`、`object.partition_by`、`normalize.timezone` 和 `semantics.ai.write_mode` 会作为强证据进入 plan。完整设计见 [docs/ai-design.md](docs/ai-design.md)，示例见 `examples/ai-copilot/`。
 
 ## 配置示例
 
@@ -296,6 +296,9 @@ boundary:
 
 source:
   type: jdbc
+  url: jdbc:postgresql://source.example:5432/app
+  username: audit_reader
+  password: ${SOURCE_PASSWORD}
   query: |
     select order_id, status, amount, update_time, dt
     from public.orders
@@ -415,7 +418,7 @@ PowerShell 会话里执行：
 
 脚本执行成功后，验证产物会落到：
 
-- `D:\work\commit\data-audit\.tmp\verify-second-layer`
+- 仓库根目录下的 `.tmp/verify-second-layer`
 
 每个场景下都会生成：
 
