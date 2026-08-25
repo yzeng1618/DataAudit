@@ -62,7 +62,7 @@
         <jacoco.version>0.8.12</jacoco.version>
         <spotless.version>2.43.0</spotless.version>
         <junit.version>5.10.2</junit.version>
-        <jackson.version>2.18.3</jackson.version>
+        <jackson.version>2.22</jackson.version>
         <picocli.version>4.7.6</picocli.version>
         <snakeyaml.version>2.2</snakeyaml.version>
         <slf4j.version>2.0.18</slf4j.version>
