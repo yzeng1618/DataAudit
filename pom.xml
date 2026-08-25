@@ -59,20 +59,21 @@
         <maven.minimum.version>3.9.0</maven.minimum.version>
         <maven.enforcer.version>3.5.0</maven.enforcer.version>
         <cyclonedx.version>2.9.1</cyclonedx.version>
+        <jacoco.version>0.8.12</jacoco.version>
         <junit.version>5.10.2</junit.version>
-        <jackson.version>2.17.2</jackson.version>
+        <jackson.version>2.18.3</jackson.version>
         <picocli.version>4.7.6</picocli.version>
         <snakeyaml.version>2.2</snakeyaml.version>
         <slf4j.version>2.0.13</slf4j.version>
-        <logback.version>1.5.8</logback.version>
+        <logback.version>1.5.16</logback.version>
         <sqlite.version>3.46.0.0</sqlite.version>
         <freemarker.version>2.3.33</freemarker.version>
-        <hikari.version>4.0.3</hikari.version>
+        <hikari.version>6.2.1</hikari.version>
         <testcontainers.version>1.20.2</testcontainers.version>
         <iceberg.version>1.6.1</iceberg.version>
         <hadoop.version>3.3.6</hadoop.version>
         <postgresql.version>42.7.4</postgresql.version>
-        <mysql.version>8.2.0</mysql.version>
+        <mysql.version>8.4.0</mysql.version>
         <trino.version>471</trino.version>
         <openai.java.version>4.33.0</openai.java.version>
     </properties>
@@ -262,6 +263,26 @@
             </plugins>
         </pluginManagement>
         <plugins>
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>${jacoco.version}</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-enforcer-plugin</artifactId>
