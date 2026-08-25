@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package io.github.dataaudit.state.sqlite;
 
 import io.github.dataaudit.spi.model.BoundaryRef;

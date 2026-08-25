@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package io.github.dataaudit.connector.jdbc;
 
 public class PostgresDialect extends AbstractSqlDialect {

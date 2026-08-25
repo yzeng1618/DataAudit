@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package io.github.dataaudit.ai.workflow;
 
 import io.github.dataaudit.ai.guardrail.ArtifactStructureValidator;

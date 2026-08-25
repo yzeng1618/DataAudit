@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 import json
 
 from data_audit_agent.graph import run_sidecar_workflow

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package io.github.dataaudit.report;
 
 import com.fasterxml.jackson.databind.DeserializationFeature;

@@ -60,6 +60,7 @@
         <maven.enforcer.version>3.5.0</maven.enforcer.version>
         <cyclonedx.version>2.9.1</cyclonedx.version>
         <jacoco.version>0.8.12</jacoco.version>
+        <spotless.version>2.43.0</spotless.version>
         <junit.version>5.10.2</junit.version>
         <jackson.version>2.18.3</jackson.version>
         <picocli.version>4.7.6</picocli.version>
@@ -263,6 +264,27 @@
             </plugins>
         </pluginManagement>
         <plugins>
+            <plugin>
+                <groupId>com.diffplug.spotless</groupId>
+                <artifactId>spotless-maven-plugin</artifactId>
+                <version>${spotless.version}</version>
+                <configuration>
+                    <java>
+                        <licenseHeader>
+                            <content>// SPDX-License-Identifier: Apache-2.0</content>
+                        </licenseHeader>
+                    </java>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>spotless-check</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>

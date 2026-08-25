@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package io.github.dataaudit.ai.guardrail;
 
 import io.github.dataaudit.ai.model.AuditPlan;

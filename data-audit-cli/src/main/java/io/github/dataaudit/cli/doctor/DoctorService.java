@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package io.github.dataaudit.cli.doctor;
 
 import io.github.dataaudit.cli.config.ConfigCheckResult;

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package io.github.dataaudit.ai.repair;
 
 import io.github.dataaudit.ai.model.AuditPlan;

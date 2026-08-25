@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 from pathlib import Path
 
 from data_audit_agent.approval import ApprovalValidationError, read_approval_decision, write_approval_request
