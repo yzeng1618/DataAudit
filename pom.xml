@@ -58,7 +58,7 @@
         <maven.compiler.release>17</maven.compiler.release>
         <maven.minimum.version>3.9.0</maven.minimum.version>
         <maven.enforcer.version>3.5.0</maven.enforcer.version>
-        <cyclonedx.version>2.9.1</cyclonedx.version>
+        <cyclonedx.version>2.9.3</cyclonedx.version>
         <jacoco.version>0.8.12</jacoco.version>
         <spotless.version>2.43.0</spotless.version>
         <junit.version>5.10.2</junit.version>
