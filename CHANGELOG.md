@@ -7,6 +7,8 @@ and this project intends to use [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-08-25
+
 ### Added
 
 - Initial CLI-first data consistency audit implementation.
@@ -52,4 +54,5 @@ and this project intends to use [Semantic Versioning](https://semver.org/).
 - Python sidecar packaging moved to PEP 621 `pyproject.toml`
   (requires Python 3.10+).
 
-[Unreleased]: https://github.com/yzeng1618/DataAudit/commits/master
+[Unreleased]: https://github.com/yzeng1618/DataAudit/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/yzeng1618/DataAudit/releases/tag/v0.1.0
