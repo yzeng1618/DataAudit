@@ -35,8 +35,7 @@ The sidecar resolves the Java CLI jar in this order:
 Build the jar before running a real workflow:
 
 ```powershell
-.\scripts\use-java17.ps1
-mvn -q -pl data-audit-cli -am -DskipTests package
+.\mvnw.cmd -q -pl data-audit-cli -am -DskipTests package
 ```
 
 ## Fixture Demo

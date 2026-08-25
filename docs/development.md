@@ -13,6 +13,8 @@ python -m pytest -q data-audit-agent
 
 Windows 下将 `./mvnw` 替换为 `.\mvnw.cmd`。需要 Docker 的 Testcontainers 集成测试在无 Docker 环境会自动跳过而不是失败；Windows 上 CI 通过 `-DexcludedGroups=requires-posix-filesystem` 排除依赖 POSIX 文件系统的用例。
 
+`verify` 同时执行 SPDX license header 检查——新增源文件运行 `./mvnw spotless:apply` 自动补齐头部；jacoco 覆盖率报告输出在各模块 `target/site/jacoco/`。
+
 ## 本地 Java 17 环境（Windows，可选）
 
 仓库预留了项目局部运行方式，不需要改全局 `JAVA_HOME`。前提是自行下载一份 JDK 17 解压到仓库根目录的 `.tools\jdk-17`（该目录被 .gitignore 忽略，不随仓库分发）。之后在 PowerShell 会话里执行：

@@ -31,6 +31,11 @@ python -m pytest -q data-audit-agent
 
 Tests that require Docker or a POSIX filesystem are identified explicitly. Do not hide a failure by broadly skipping tests.
 
+`verify` also checks that every Java source starts with
+`// SPDX-License-Identifier: Apache-2.0` (Python sources carry the same header
+with `#`). Run `./mvnw spotless:apply` to add it to new files automatically.
+Coverage reports land in each module's `target/site/jacoco/`.
+
 ## Change guidelines
 
 - Add a focused test for every bug fix and behavior change.

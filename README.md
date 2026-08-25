@@ -189,7 +189,7 @@ diff sample 的值默认在持久化前脱敏，`output.value_mode` 可选：
 | `0` | 执行成功且数据一致 |
 | `1` | 执行成功但发现差异 |
 | `2` | 配置错误（任务文件不合法、缺失环境变量、非法参数） |
-| `4` | 执行失败（连接、权限、驱动、执行或诊断失败） |
+| `4` | 执行失败（连接、权限、驱动、诊断失败或未预期异常） |
 | `5` | 边界不稳定，拒绝执行 |
 | `6` | `ai plan` 画像质量门要求人工复核（`REVIEW_REQUIRED`） |
 
@@ -238,7 +238,9 @@ data-audit-agent             可选 Python LangGraph sidecar（不在 Maven reac
 python -m pytest -q data-audit-agent
 ```
 
-版本发布由 `v*` 标签触发，产物包含完整 CLI、AI wrapper、CycloneDX SBOM 和 SHA-256 校验文件，见 [Releases](https://github.com/yzeng1618/DataAudit/releases)。
+`verify` 同时执行 SPDX license header 检查——新增源文件需带 `// SPDX-License-Identifier: Apache-2.0` 头，运行 `./mvnw spotless:apply` 可自动补齐；jacoco 覆盖率报告输出在各模块 `target/site/jacoco/`。
+
+版本发布由 `v*` 标签触发：流水线将 POM 版本对齐到 tag、注入提交溯源并做可复现构建，产物包含完整 CLI、AI wrapper、CycloneDX SBOM 和 SHA-256 校验文件，见 [Releases](https://github.com/yzeng1618/DataAudit/releases)。
 
 ## 参考资料
 
