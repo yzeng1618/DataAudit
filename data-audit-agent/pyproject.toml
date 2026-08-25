@@ -1,3 +1,37 @@
 [build-system]
-requires = ["setuptools>=40.8.0", "wheel"]
+requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "data-audit-agent"
+version = "0.1.0"
+description = "Optional LangGraph sidecar for DataAudit artifact-contract workflows."
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.10"
+authors = [{ name = "zengyi" }]
+keywords = ["data-audit", "langgraph", "data-quality"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Database",
+]
+
+[project.urls]
+Homepage = "https://github.com/yzeng1618/DataAudit"
+Documentation = "https://github.com/yzeng1618/DataAudit/blob/master/data-audit-agent/README.md"
+
+[project.optional-dependencies]
+langgraph = ["langgraph>=0.2"]
+
+[project.scripts]
+data-audit-agent = "data_audit_agent.demo:main"
+
+[tool.setuptools.packages.find]
+include = ["data_audit_agent*"]
