@@ -2,6 +2,19 @@ package io.github.dataaudit.spi.connector;
 
 import io.github.dataaudit.spi.model.CapabilityDescriptor;
 
+/**
+ * Everything the engine may use on one opened endpoint: a
+ * {@link CapabilityDescriptor} advertising what the connector can do, and one
+ * reader per access pattern. A reader must be non-null whenever the matching
+ * capability flag is set (for example {@code supportsRoutingSignalPushdown}
+ * implies a {@link RoutingSignalReader}); the engine consults the descriptor
+ * before dereferencing optional readers.
+ *
+ * <p>The bundle owns the endpoint's resources: the engine calls
+ * {@link #close()} exactly once when the run is finished, which delegates to
+ * the {@code closeable} passed at construction (for example a connection
+ * pool).
+ */
 public class ConnectorBundle implements AutoCloseable {
     private final CapabilityDescriptor capabilityDescriptor;
     private final SchemaReader schemaReader;
