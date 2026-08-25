@@ -45,27 +45,34 @@ class TrinoCliIntegrationTest {
             .waitingFor(Wait.forLogMessage(".*======== SERVER STARTED ========.*\\s", 1)
                     .withStartupTimeout(Duration.ofMinutes(5)));
 
-    // The banner races worker-node registration: coordinator-only statements
-    // like "select 1" already succeed while distributed table scans still die
-    // with "nodes is empty". Probe with a real tpch scan before any test runs.
+    // The banner races worker-node registration, and the node announcement can
+    // still flap right after the first successful scan ("nodes is empty" from
+    // FixedSourcePartitionedScheduler seconds later). Require several
+    // consecutive successful distributed scans before letting tests run.
     @BeforeAll
     static void waitUntilQueryable() throws Exception {
         String url = "jdbc:trino://" + trino.getHost() + ":" + trino.getMappedPort(8080);
         Properties props = new Properties();
         props.setProperty("user", "test");
-        long deadline = System.nanoTime() + Duration.ofMinutes(2).toNanos();
+        long deadline = System.nanoTime() + Duration.ofMinutes(3).toNanos();
         SQLException last = null;
+        int consecutive = 0;
         while (System.nanoTime() < deadline) {
             try (Connection connection = DriverManager.getConnection(url, props);
                  Statement statement = connection.createStatement();
                  ResultSet ignored = statement.executeQuery("select count(*) from tpch.tiny.nation")) {
-                return;
+                consecutive++;
+                if (consecutive >= 3) {
+                    return;
+                }
+                Thread.sleep(1000L);
             } catch (SQLException e) {
                 last = e;
+                consecutive = 0;
                 Thread.sleep(500L);
             }
         }
-        throw new IllegalStateException("Trino did not become queryable in time", last);
+        throw new IllegalStateException("Trino did not become stably queryable in time", last);
     }
 
     @Test
