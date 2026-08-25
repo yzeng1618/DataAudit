@@ -94,8 +94,22 @@ public class DataAuditMain implements Runnable {
     private static final Pattern ENV_PLACEHOLDER = Pattern.compile("\\$\\{([A-Za-z_][A-Za-z0-9_]*)}");
 
     public static void main(String[] args) {
-        int exitCode = new CommandLine(new DataAuditMain()).execute(args);
+        int exitCode = createCommandLine().execute(args);
         System.exit(exitCode);
+    }
+
+    /**
+     * Builds the CLI with production error semantics: an unexpected exception maps to
+     * exit code 4 (execution failure) instead of picocli's default 1, which schedulers
+     * would misread as "diff found".
+     */
+    public static CommandLine createCommandLine() {
+        return new CommandLine(new DataAuditMain())
+                .setExecutionExceptionHandler((ex, cmd, parseResult) -> {
+                    cmd.getErr().println("Unexpected error: " + ex);
+                    ex.printStackTrace(cmd.getErr());
+                    return 4;
+                });
     }
 
     @Override

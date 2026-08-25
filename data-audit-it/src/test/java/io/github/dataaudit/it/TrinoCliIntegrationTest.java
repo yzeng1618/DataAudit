@@ -71,7 +71,7 @@ class TrinoCliIntegrationTest {
                 + "output:\n"
                 + "  dir: " + reportsDir.toString().replace("\\", "/") + "\n", StandardCharsets.UTF_8);
 
-        CommandLine cli = new CommandLine(new DataAuditMain());
+        CommandLine cli = DataAuditMain.createCommandLine();
         assertEquals(0, cli.execute("plan", "-f", taskFile.toString()));
         assertEquals(0, cli.execute("check", "-f", taskFile.toString()));
 
@@ -128,7 +128,7 @@ class TrinoCliIntegrationTest {
                 + "output:\n"
                 + "  dir: " + reportsDir.toString().replace("\\", "/") + "\n", StandardCharsets.UTF_8);
 
-        int checkExit = new CommandLine(new DataAuditMain()).execute("check", "-f", taskFile.toString());
+        int checkExit = DataAuditMain.createCommandLine().execute("check", "-f", taskFile.toString());
         assertEquals(1, checkExit);
 
         JsonNode report = objectMapper.readTree(reportsDir.resolve("report.json").toFile());
