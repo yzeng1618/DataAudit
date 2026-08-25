@@ -9,6 +9,7 @@ import io.github.dataaudit.spi.connector.ConnectorBundle;
 import io.github.dataaudit.spi.model.ReadRequest;
 import io.github.dataaudit.spi.model.SliceSignal;
 import io.github.dataaudit.spi.model.TaskFileSpec;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
@@ -19,8 +20,14 @@ import picocli.CommandLine;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.time.Duration;
 import java.util.List;
+import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -37,6 +44,28 @@ class TrinoCliIntegrationTest {
             // banner is the only signal that queries will be accepted.
             .waitingFor(Wait.forLogMessage(".*======== SERVER STARTED ========.*\\s", 1)
                     .withStartupTimeout(Duration.ofMinutes(5)));
+
+    // The banner still races node registration ("nodes is empty"), so probe
+    // with a real query before any test runs.
+    @BeforeAll
+    static void waitUntilQueryable() throws Exception {
+        String url = "jdbc:trino://" + trino.getHost() + ":" + trino.getMappedPort(8080);
+        Properties props = new Properties();
+        props.setProperty("user", "test");
+        long deadline = System.nanoTime() + Duration.ofMinutes(2).toNanos();
+        SQLException last = null;
+        while (System.nanoTime() < deadline) {
+            try (Connection connection = DriverManager.getConnection(url, props);
+                 Statement statement = connection.createStatement();
+                 ResultSet ignored = statement.executeQuery("select 1")) {
+                return;
+            } catch (SQLException e) {
+                last = e;
+                Thread.sleep(500L);
+            }
+        }
+        throw new IllegalStateException("Trino did not become queryable in time", last);
+    }
 
     @Test
     void shouldUseTrinoTableModeForSmallExactDiff() throws Exception {
