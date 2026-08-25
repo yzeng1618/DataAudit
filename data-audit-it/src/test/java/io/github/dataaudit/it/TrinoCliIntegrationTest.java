@@ -45,8 +45,9 @@ class TrinoCliIntegrationTest {
             .waitingFor(Wait.forLogMessage(".*======== SERVER STARTED ========.*\\s", 1)
                     .withStartupTimeout(Duration.ofMinutes(5)));
 
-    // The banner still races node registration ("nodes is empty"), so probe
-    // with a real query before any test runs.
+    // The banner races worker-node registration: coordinator-only statements
+    // like "select 1" already succeed while distributed table scans still die
+    // with "nodes is empty". Probe with a real tpch scan before any test runs.
     @BeforeAll
     static void waitUntilQueryable() throws Exception {
         String url = "jdbc:trino://" + trino.getHost() + ":" + trino.getMappedPort(8080);
@@ -57,7 +58,7 @@ class TrinoCliIntegrationTest {
         while (System.nanoTime() < deadline) {
             try (Connection connection = DriverManager.getConnection(url, props);
                  Statement statement = connection.createStatement();
-                 ResultSet ignored = statement.executeQuery("select 1")) {
+                 ResultSet ignored = statement.executeQuery("select count(*) from tpch.tiny.nation")) {
                 return;
             } catch (SQLException e) {
                 last = e;
