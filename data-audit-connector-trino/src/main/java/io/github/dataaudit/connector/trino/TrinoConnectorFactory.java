@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package io.github.dataaudit.connector.trino;
 
 import com.zaxxer.hikari.HikariConfig;
@@ -84,7 +85,7 @@ public class TrinoConnectorFactory implements ConnectorFactory {
         return new ConnectorBundle(capabilityDescriptor, endpoint, endpoint, endpoint, endpoint, endpoint, null, dataSource::close);
     }
 
-    private String buildJdbcUrl(TaskFileSpec spec, TaskFileSpec.EndpointSpec endpointSpec) {
+    String buildJdbcUrl(TaskFileSpec spec, TaskFileSpec.EndpointSpec endpointSpec) {
         String raw = spec.queryConnector.uri;
         boolean ssl = raw != null && raw.startsWith("https://");
         if (raw.startsWith("jdbc:trino://")) {
