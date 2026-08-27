@@ -79,7 +79,7 @@ public class TaskConfigService {
                 }
                 return result;
             }
-            result.addCheck("configuration", "ok", "Task configuration is valid");
+            result.addCheck("configuration", "ok", "Task configuration syntax is valid");
         } catch (Exception e) {
             result.addCheck("configuration", "error", safeMessage(e));
             return result;
@@ -115,8 +115,12 @@ public class TaskConfigService {
             bundle.getSchemaReader().readSchema();
             result.addCheck(label + "_connection", "ok", label + " connection probe succeeded");
         } catch (Exception e) {
+            Throwable rootCause = e;
+            while (rootCause.getCause() != null) {
+                rootCause = rootCause.getCause();
+            }
             result.addCheck(label + "_connection", "error",
-                    label + " connection probe failed: " + safeMessage(e));
+                    label + " connection probe failed: " + safeMessage(rootCause));
         }
     }
 
@@ -161,7 +165,7 @@ public class TaskConfigService {
         return expanded.toString();
     }
 
-    private String safeMessage(Exception exception) {
+    private String safeMessage(Throwable exception) {
         String message = exception.getMessage();
         if (message == null || message.isBlank()) {
             message = exception.getClass().getSimpleName();

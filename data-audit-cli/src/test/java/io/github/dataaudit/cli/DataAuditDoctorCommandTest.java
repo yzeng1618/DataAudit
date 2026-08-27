@@ -55,10 +55,13 @@ class DataAuditDoctorCommandTest {
                 tempDir.resolve("reports").toString().replace("\\", "\\\\")),
                 StandardCharsets.UTF_8);
 
-        Result result = execute("doctor", "-f", task.toString(), "--test-connection");
+        Result result = execute("doctor", "-f", task.toString());
 
-        assertEquals(4, result.exitCode);
+        assertEquals(4, result.exitCode, "connection probing is the default, not an opt-in");
         assertTrue(result.output().contains("connection"));
+
+        Result offline = execute("doctor", "-f", task.toString(), "--offline");
+        assertEquals(0, offline.exitCode, "--offline skips the probe and keeps the static checks");
     }
 
     private Result execute(String... args) {

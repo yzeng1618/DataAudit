@@ -61,6 +61,8 @@ public class TrinoConnectorFactory implements ConnectorFactory {
         config.setMaximumPoolSize(4);
         config.setMinimumIdle(1);
         config.setInitializationFailTimeout(-1);
+        // A CLI must fail fast: Hikari's default 30s connection timeout reads as a hang.
+        config.setConnectionTimeout(8000L);
         if (spec.queryConnector.sessionProperties != null && !spec.queryConnector.sessionProperties.isEmpty()) {
             StringJoiner joiner = new StringJoiner(";");
             for (Map.Entry<String, String> entry : spec.queryConnector.sessionProperties.entrySet()) {

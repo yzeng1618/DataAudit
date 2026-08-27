@@ -58,6 +58,8 @@ public class JdbcConnectorFactory implements ConnectorFactory {
         config.setMaximumPoolSize(4);
         config.setMinimumIdle(1);
         config.setInitializationFailTimeout(-1);
+        // A CLI must fail fast: Hikari's default 30s connection timeout reads as a hang.
+        config.setConnectionTimeout(8000L);
         HikariDataSource dataSource = new HikariDataSource(config);
 
         JdbcEndpoint endpoint = new JdbcEndpoint(spec, endpointSpec, dataSource, dialect);
