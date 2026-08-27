@@ -7,7 +7,10 @@ import io.github.dataaudit.spi.model.TaskFileSpec;
  * Entry point for a connector implementation, discovered through
  * {@link java.util.ServiceLoader}. An implementation must be listed in
  * {@code META-INF/services/io.github.dataaudit.spi.connector.ConnectorFactory}
- * to be visible to the engine's connector registry.
+ * to be visible to the engine's connector registry. Third-party connectors can
+ * ship as standalone jars dropped into the directory named by the
+ * {@code DATAAUDIT_PLUGINS_DIR} environment variable — no changes to this
+ * repository required.
  *
  * <p>Factories are stateless: all per-run resources belong to the
  * {@link ConnectorBundle} returned by {@link #open}.
