@@ -7,6 +7,29 @@ and this project intends to use [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `demo` command: a zero-dependency first run that generates sample SQLite
+  data, audits it, and shows the exact differing rows in about a minute.
+- Third-party connector plugins: jars in the directory named by
+  `DATAAUDIT_PLUGINS_DIR` are discovered at startup, so new connectors do not
+  require changes to this repository.
+- A human-readable summary (row counts, difference tally, evidence path, and
+  the differing rows themselves in `raw` mode) before the structured
+  `check`/`diff` output.
+
+### Changed
+
+- `doctor` probes source/target connections by default (`--offline` skips it),
+  and the syntax check message no longer overpromises.
+- `masked` and `hash` evidence modes keep the row key readable — it is the
+  investigator's only lead; only `omit` suppresses keys.
+- Unexpected errors print a single `[FAIL] <root cause>` line instead of a
+  bare stack trace (`--stacktrace` restores it), and connections fail fast
+  after 8 seconds instead of Hikari's 30-second default.
+- Console logging moved to stderr at WARN level (project progress stays at
+  INFO), and freemarker's stray `log4j:WARN` lines are gone.
+
 ## [0.1.0] - 2026-08-25
 
 ### Added

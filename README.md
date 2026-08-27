@@ -132,6 +132,7 @@ output:
 ## 命令
 
 ```bash
+data-audit demo
 data-audit config init -o task.yaml
 data-audit config validate -f task.yaml
 data-audit doctor -f task.yaml
@@ -141,12 +142,15 @@ data-audit diff  -f task.yaml --slice dt=2026-03-10
 data-audit report show ./reports/orders_reconcile/report.json
 ```
 
+- `demo`：零依赖的完整演示——自动生成两份 SQLite 样例数据并跑一次真实核验，60 秒看到第一个有意义的差异
 - `check`：标准执行
 - `plan`：只生成比较计划，不执行
 - `diff`：对指定 suspect segment 下钻
 - `report`：查看或转换报告
-- `config init/validate`：创建配置并做默认离线校验
-- `doctor`：聚合检查 Java、连接器、SQLite 和输出目录；连接探测必须显式开启
+- `config init/validate`：创建配置并做默认离线校验（`--test-connection` 才连库）
+- `doctor`：聚合检查 Java、连接器、SQLite、输出目录，并**默认探测 source/target 连接**（`--offline` 跳过）
+
+任何命令遇到未预期错误都会以一行 `[FAIL] <根因>` 说明问题并以退出码 4 结束；加 `--stacktrace` 查看完整堆栈。
 
 ## Connector 策略
 
@@ -157,6 +161,8 @@ v1 配置模型为 `task / boundary / query_connector / source / target / object
 - `type: iceberg` — 首个原生湖仓 connector，保留 snapshot/native metadata 真值路径；需要 `snapshot / manifest / partition summary` 等原生元数据能力时优先使用
 
 `jdbc <-> iceberg` 已可执行真实 `check`。Hive 与 Doris 当前不做 native connector，统一通过 `type: jdbc` 接入。v0 配置迁移见 [docs/migration-v1.md](docs/migration-v1.md)。
+
+**第三方 connector 无需修改本仓库**：实现 [SPI](data-audit-spi/src/main/java/io/github/dataaudit/spi/connector/ConnectorFactory.java) 并注册 `META-INF/services`，把 jar 放进环境变量 `DATAAUDIT_PLUGINS_DIR` 指向的目录即可被自动发现（内置 connector 优先，插件只能新增类型不能覆盖）。
 
 ## AI Copilot（Alpha）
 
@@ -175,9 +181,9 @@ data-audit check -f task.yaml --ai-report --ai-report-template technical
 
 diff sample 的值默认在持久化前脱敏，`output.value_mode` 可选：
 
-- `masked`：非空值写为 `***`（默认）
-- `hash`：写入 SHA-256 摘要，便于跨报告关联；摘要不是加密
-- `omit`：不持久化样本值
+- `masked`：非空样本值写为 `***`（默认）；**行 key 保持可读**——它通常是业务标识，也是排查的唯一线索
+- `hash`：样本值写入 SHA-256 摘要（key 保持可读），便于跨报告关联；摘要不是加密
+- `omit`：连同 key 一起不持久化——key 也敏感时使用
 - `raw`：保留明文，只应在明确授权且访问受控的目录中使用
 
 `slice_key` 和 `resume_hint` 是复查所需的操作值，不受该模式处理。详细威胁边界见 [SECURITY.md](SECURITY.md)。

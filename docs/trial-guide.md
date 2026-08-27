@@ -155,8 +155,9 @@ java -version
    ```
 
    `config validate` 不访问数据源；加上 `--test-connection` 才会打开连接并读 schema。
-   `doctor` 用于汇总 Java、connector、输出目录和连接问题。先人工审阅 `plan` 的规模
-   档位、策略和边界，再执行 `check`，可避免意外对大表发起不合适的读取。
+   `doctor` 汇总 Java、connector、输出目录检查，并默认探测 source/target 连接
+   （`--offline` 可跳过）。先人工审阅 `plan` 的规模档位、策略和边界，再执行
+   `check`，可避免意外对大表发起不合适的读取。
 
 5. 解释退出码并查看报告：
 

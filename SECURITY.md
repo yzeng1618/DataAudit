@@ -37,10 +37,13 @@ secret manager rather than committed YAML.
 Generated reports may contain evidence derived from source and target systems.
 `output.value_mode` controls diff sample keys and values:
 
-- `masked` replaces non-null values with `***` and is the default.
-- `hash` writes a SHA-256 pseudonym for correlation; it is not encryption and
-  low-cardinality values may still be guessed.
-- `omit` removes sample keys and values.
+- `masked` replaces non-null sample values with `***` and is the default. The
+  row key stays readable: it is usually a business identifier and the one lead
+  an investigator needs.
+- `hash` writes SHA-256 pseudonyms for sample values (keys stay readable); it
+  is not encryption and low-cardinality values may still be guessed.
+- `omit` removes sample keys and values entirely — use it when even the keys
+  are sensitive.
 - `raw` preserves plaintext evidence and must be enabled explicitly.
 
 `slice_key` and `resume_hint` remain operational inputs for drilldown and can
