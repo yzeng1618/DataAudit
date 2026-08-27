@@ -96,8 +96,8 @@ class ExecutionServiceScalePipelineTest {
         assertEquals("no_key_xor_fallback", report.result.fallbackReason);
         assertEquals("masked", report.evidenceValueMode);
         assertFalse(report.result.diff.samples.isEmpty());
-        assertTrue(report.result.diff.samples.stream().allMatch(sample ->
-                sample.key == null || "***".equals(sample.key)));
+        assertTrue(report.result.diff.samples.stream().noneMatch(sample ->
+                "***".equals(sample.key)), "masked keeps row keys readable");
         assertTrue(report.result.diff.samples.stream().allMatch(sample ->
                 sample.sourceValue == null || "***".equals(sample.sourceValue)));
         assertTrue(report.result.diff.samples.stream().allMatch(sample ->

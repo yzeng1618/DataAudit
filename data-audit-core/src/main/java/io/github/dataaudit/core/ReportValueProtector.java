@@ -32,7 +32,9 @@ public class ReportValueProtector {
             if (sample == null) {
                 continue;
             }
-            sample.key = protectValue(sample.key, effectiveMode);
+            // The row key is usually a business identifier, not a secret, and it is the
+            // one thing an investigator needs; only "omit" suppresses it.
+            sample.key = "omit".equals(effectiveMode) ? null : sample.key;
             sample.sourceValue = protectValue(sample.sourceValue, effectiveMode);
             sample.targetValue = protectValue(sample.targetValue, effectiveMode);
         }

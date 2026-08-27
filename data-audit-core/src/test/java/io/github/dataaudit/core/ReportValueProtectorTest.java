@@ -13,14 +13,15 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class ReportValueProtectorTest {
 
     @Test
-    void shouldMaskEvidenceValuesByDefault() {
+    void shouldMaskEvidenceValuesButKeepKeysByDefault() {
         ReportModel report = reportWithSample("key-1", "source-secret", "target-secret");
 
         ReportModel protectedReport = new ReportValueProtector().protect(report, null);
 
         assertSame(report, protectedReport);
         assertEquals("masked", report.evidenceValueMode);
-        assertEquals("***", report.result.diff.samples.get(0).key);
+        assertEquals("key-1", report.result.diff.samples.get(0).key,
+                "the row key is the investigator's only lead and stays readable");
         assertEquals("***", report.result.diff.samples.get(0).sourceValue);
         assertEquals("***", report.result.diff.samples.get(0).targetValue);
         assertEquals("dt=2026-07-27", report.result.diff.samples.get(0).sliceKey);
@@ -29,13 +30,13 @@ class ReportValueProtectorTest {
 
     @Test
     void shouldHashEvidenceValuesWithStableSha256() {
-        ReportModel report = reportWithSample("secret", "secret", null);
+        ReportModel report = reportWithSample("key-1", "secret", null);
 
         new ReportValueProtector().protect(report, "hash");
 
         String expected = "sha256:2bb80d537b1da3e38bd30361aa855686bde0eacd7162fef6a25fe97bf527a25b";
         assertEquals("hash", report.evidenceValueMode);
-        assertEquals(expected, report.result.diff.samples.get(0).key);
+        assertEquals("key-1", report.result.diff.samples.get(0).key);
         assertEquals(expected, report.result.diff.samples.get(0).sourceValue);
         assertNull(report.result.diff.samples.get(0).targetValue);
     }
