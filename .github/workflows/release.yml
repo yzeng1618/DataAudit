@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
   release:
@@ -39,6 +40,19 @@ jobs:
           cp target/bom.json "dist/data-audit-${GITHUB_REF_NAME}-bom.json"
           cd dist
           sha256sum data-audit-* dataaudit-ai-* > SHA256SUMS
+      - name: Push container image
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          IMAGE="ghcr.io/yzeng1618/data-audit"
+          echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker build -t "$IMAGE:$VERSION" .
+          docker push "$IMAGE:$VERSION"
+          if [[ "$VERSION" != *-* ]]; then
+            docker tag "$IMAGE:$VERSION" "$IMAGE:latest"
+            docker push "$IMAGE:latest"
+          fi
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}

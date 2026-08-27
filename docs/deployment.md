@@ -109,6 +109,18 @@ java -jar ./bin/data-audit.jar diff -f ./tasks/task.yaml --slice dt=2026-03-10
 
 ## 2. 单容器部署
 
+发布版镜像随每个 release 推送到 GitHub Container Registry，可直接拉取：
+
+```bash
+docker run --rm \
+  -v /opt/data-audit/tasks:/tasks \
+  -v /opt/data-audit/reports:/reports \
+  ghcr.io/yzeng1618/data-audit:latest \
+  check -f /tasks/task.yaml
+```
+
+以下为本地自行构建镜像的方式。
+
 > 注意：Dockerfile 是单阶段构建，`docker build` 之前需要先在本机执行
 > `./mvnw -q -DskipTests package` 产出 `data-audit-cli/target/data-audit.jar`。
 
