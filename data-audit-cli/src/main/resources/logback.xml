@@ -1,11 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
 <configuration>
-    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+    <!-- Logs go to stderr so stdout stays clean for the CLI's own output;
+         third-party INFO noise (connection pools, drivers) is suppressed. -->
+    <appender name="STDERR" class="ch.qos.logback.core.ConsoleAppender">
+        <target>System.err</target>
         <encoder>
-            <pattern>%d{HH:mm:ss} %-5level %logger{36} - %msg%n</pattern>
+            <pattern>%d{HH:mm:ss} %-5level %logger{0} - %msg%n</pattern>
         </encoder>
     </appender>
 
-    <root level="INFO">
-        <appender-ref ref="STDOUT"/>
+    <logger name="io.github.dataaudit" level="INFO"/>
+
+    <root level="WARN">
+        <appender-ref ref="STDERR"/>
     </root>
 </configuration>
