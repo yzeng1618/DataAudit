@@ -81,6 +81,7 @@ import java.util.jar.Manifest;
         mixinStandardHelpOptions = true,
         description = "Task-post consistency audit CLI.",
         subcommands = {
+                DemoCommand.class,
                 DataAuditMain.PlanCommand.class,
                 DataAuditMain.CheckCommand.class,
                 DataAuditMain.DiffCommand.class,
@@ -94,7 +95,14 @@ import java.util.jar.Manifest;
 public class DataAuditMain implements Runnable {
     private static final Pattern ENV_PLACEHOLDER = Pattern.compile("\\$\\{([A-Za-z_][A-Za-z0-9_]*)}");
 
+    @Option(names = "--stacktrace", scope = CommandLine.ScopeType.INHERIT,
+            description = "print the full stack trace when an unexpected error occurs")
+    boolean stacktrace;
+
     public static void main(String[] args) {
+        // Freemarker autodetects log4j classes (bundled via reload4j) and prints
+        // "log4j:WARN No appenders" unless told to log through slf4j.
+        System.setProperty("org.freemarker.loggerLibrary", "slf4j");
         int exitCode = createCommandLine().execute(args);
         System.exit(exitCode);
     }
@@ -102,13 +110,26 @@ public class DataAuditMain implements Runnable {
     /**
      * Builds the CLI with production error semantics: an unexpected exception maps to
      * exit code 4 (execution failure) instead of picocli's default 1, which schedulers
-     * would misread as "diff found".
+     * would misread as "diff found". The root cause is surfaced as a single [FAIL]
+     * line; the stack trace only prints with --stacktrace.
      */
     public static CommandLine createCommandLine() {
-        return new CommandLine(new DataAuditMain())
+        DataAuditMain root = new DataAuditMain();
+        return new CommandLine(root)
                 .setExecutionExceptionHandler((ex, cmd, parseResult) -> {
-                    cmd.getErr().println("Unexpected error: " + ex);
-                    ex.printStackTrace(cmd.getErr());
+                    Throwable rootCause = ex;
+                    while (rootCause.getCause() != null) {
+                        rootCause = rootCause.getCause();
+                    }
+                    String message = rootCause.getMessage();
+                    cmd.getErr().println("[FAIL] " + (message == null || message.isBlank()
+                            ? rootCause.toString()
+                            : message));
+                    if (root.stacktrace) {
+                        ex.printStackTrace(cmd.getErr());
+                    } else {
+                        cmd.getErr().println("Run again with --stacktrace for the full stack trace.");
+                    }
                     return 4;
                 });
     }
@@ -176,7 +197,7 @@ public class DataAuditMain implements Runnable {
                             + e.getMessage());
                 }
             }
-            printSummary(report);
+            printSummary(report, Paths.get(spec.output.dir));
             return exitCode(report.result.status);
         }
     }
@@ -194,7 +215,7 @@ public class DataAuditMain implements Runnable {
             TaskFileSpec spec = loadExecutionSpec(taskFile);
             ExecutionService service = newExecutionService(spec);
             ReportModel report = service.diff(spec, slice);
-            printSummary(report);
+            printSummary(report, Paths.get(spec.output.dir));
             return exitCode(report.result.status);
         }
     }
@@ -586,7 +607,11 @@ public class DataAuditMain implements Runnable {
         @Option(names = "--output-dir", defaultValue = ".", description = "directory to test for write access")
         private Path outputDir;
 
-        @Option(names = "--test-connection", description = "open and probe configured source and target connectors")
+        @Option(names = "--offline", description = "skip the source/target connection probe")
+        private boolean offline;
+
+        @Option(names = "--test-connection", hidden = true,
+                description = "deprecated: connection probing is now the default")
         private boolean testConnection;
 
         @Option(names = "--format", defaultValue = "text", description = "text or json")
@@ -597,7 +622,7 @@ public class DataAuditMain implements Runnable {
             ConnectorRegistry registry = ConnectorRegistry.load();
             TaskConfigService configService = new TaskConfigService(registry, new SpecValidator(), System::getenv);
             ConfigCheckResult result = new DoctorService(registry, configService)
-                    .diagnose(taskFile, outputDir, testConnection);
+                    .diagnose(taskFile, outputDir, !offline);
             printChecks(result, format);
             return result.isOk() ? 0 : 4;
         }
@@ -1018,6 +1043,11 @@ public class DataAuditMain implements Runnable {
     }
 
     private static void printSummary(ReportModel report) throws Exception {
+        printSummary(report, null);
+    }
+
+    private static void printSummary(ReportModel report, Path evidenceDir) throws Exception {
+        printHumanSummary(report, evidenceDir);
         System.out.println("runId=" + report.runId);
         System.out.println("status=" + report.result.status);
         System.out.println("scaleClass=" + report.plan.scaleClass);
@@ -1031,6 +1061,53 @@ public class DataAuditMain implements Runnable {
         System.out.println("suspectSlices=" + objectMapper().writeValueAsString(report.result.suspectSlices));
         System.out.println("resumeHint=" + report.result.resumeHint);
         System.out.println("planDecisionTrace=" + objectMapper().writeValueAsString(report.plan.decisionTrace));
+    }
+
+    private static void printHumanSummary(ReportModel report, Path evidenceDir) {
+        StringBuilder headline = new StringBuilder(report.result.status);
+        if (report.result.sourceSummary != null && report.result.targetSummary != null) {
+            headline.append(" - source ").append(report.result.sourceSummary.rowCount)
+                    .append(" rows / target ").append(report.result.targetSummary.rowCount).append(" rows");
+        }
+        List<io.github.dataaudit.spi.model.DiffResult.DiffSample> samples =
+                report.result.diff == null || report.result.diff.samples == null
+                        ? List.of()
+                        : report.result.diff.samples;
+        if (!samples.isEmpty()) {
+            Map<String, Long> byType = new java.util.LinkedHashMap<>();
+            for (io.github.dataaudit.spi.model.DiffResult.DiffSample sample : samples) {
+                String type = sample.type == null ? "difference" : sample.type.replace('_', ' ');
+                byType.merge(type, 1L, Long::sum);
+            }
+            StringBuilder tally = new StringBuilder();
+            for (Map.Entry<String, Long> entry : byType.entrySet()) {
+                if (tally.length() > 0) {
+                    tally.append(", ");
+                }
+                tally.append(entry.getValue()).append(" ").append(entry.getKey());
+            }
+            headline.append("; ").append(tally).append(" (sampled)");
+        }
+        System.out.println(headline);
+        if ("raw".equals(report.evidenceValueMode) && !samples.isEmpty() && samples.size() <= 5) {
+            for (io.github.dataaudit.spi.model.DiffResult.DiffSample sample : samples) {
+                StringBuilder line = new StringBuilder("  - ");
+                line.append(sample.key == null ? "(no key)" : sample.key);
+                line.append("  ").append(sample.type == null ? "difference" : sample.type.replace('_', ' '));
+                if (sample.sourceValue != null && sample.targetValue != null) {
+                    line.append("  ").append(sample.sourceValue).append(" -> ").append(sample.targetValue);
+                }
+                System.out.println(line);
+            }
+        }
+        if (("masked".equals(report.evidenceValueMode) || "hash".equals(report.evidenceValueMode))
+                && !samples.isEmpty()) {
+            System.out.println("note: sample values are protected (value_mode=" + report.evidenceValueMode
+                    + "); keys stay readable, set output.value_mode: raw for local investigation");
+        }
+        if (evidenceDir != null) {
+            System.out.println("evidence: " + evidenceDir);
+        }
     }
 
     private static int exitCode(String status) {
